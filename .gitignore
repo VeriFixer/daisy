@@ -1,0 +1,10 @@
+__pycache__/
+temp/
+dataset/*
+results/*
+
+!dataset/
+!results/
+
+!dataset/latest.tar.gz
+!results/latest.tar.gz

@@ -1,0 +1,9 @@
+[submodule "external/dafny_fork"]
+	path = external/dafny_fork
+	url = git@github.com:ricostynha1/dafny_fork.git
+[submodule "external/DafnyBenchFork"]
+	path = external/DafnyBenchFork
+	url = git@github.com:ricostynha1/DafnyBenchFork.git
+[submodule "external/dafny_laurel_repair"]
+	path = external/dafny_laurel_repair
+	url = git@github.com:ricostynha1/dafny_laurel_repair.git
