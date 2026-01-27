@@ -3,6 +3,7 @@
 This repository contains all the artifacts required to infer helper annotations in Dafny code.
 
 ## Installation
+Note this project has a Dockerfile with all dependencies and instalation information, all requisities are prelisted there. Even that being the case here some major things are going to be explained. You can skip the installation part if using the Dockerfile, moreover in any quesiton on the instalation process you can see the Dockerfile and see exactly what is done there
 
 ### Clone the Repository
 Set large file system of GIT to not load large files unless explicity required (files containing all experiments results):
@@ -24,20 +25,25 @@ git lfs checkout
 
 This will download the snapshot files:
 
-* dataset/latest.tar.gz
-* results/latest.tar.gz
+* dataset/dafny_assertion_dataset_test.tar.gz
+* dataset/dafny_assertion_dataset_test.tar.gz
+
+* results/dafny_llm_results_pre_test__testing_different_models.tar.gz
+* results/dafny_llm_results_rq1__best_overall.tar.gz
+* results/dafny_llm_results_rq2__loc_strategy.tar.gz
+* results/dafny_llm_results_rq3__example_gatherer.tar.gz
+* results/dafny_llm_results_rq4__different_llms.tar.gz
 
 You will need to uncompress these archives inside their respective directories to access the full contents (with the content to be directly under dataset and results like so)
-* dataset/latest.tar.gz
-* dataset/dafny_assertion_al (etc)
+* dataset/dafny_assertion_dataset_test (etc)
+* results/dafny_llm_results_pre_test__testing_different_models.tar.gz (etc)
 
 
 ### Build the Custom Dafny Binary
 #### Prerequisites
 - Install .NET SDK version 8.0. Download and install from [Microsoft](https://dotnet.microsoft.com/en-us/download).
 - Install z3 : on linux fedora: 
-Version for reproduce results: Z3 version 4.15.2 - 64 bit
-
+Version for reproduce results: Z3 version 4.15.4 - 64 bit
 sudo dnf install -y z3
 
 #### Build Dafny
@@ -163,100 +169,106 @@ Contains assertion groups:
 
 # Replicating paper results without recomputing dataset 
 If you did not recompute the dataset and the results:
-Use the complete jupyter notebook contain all data analysys
+Use the jupyter notebooks to get all info used on the paper on data analysys
 
 The figures used in the paper are generated using three scripts, all of which output their results under the `images/` folder:
 
-* **`src/data_analysys.ipynb`**
+With 
 
-the data that allowed to create the graphs are also shown there
+* src/data_analysys_dataset_overview.ipynb
+The analyses to reach figures 2 and 3 of the paper can be seen
+
+* src/data_analysys_pre_tests.ipynb
+The analyses to reach Table two of the paper in terms of accuracy (the cost was manyally added with the infomration of consumed tokens)
+
+* src/data_analysys_cost_statistics.ipynb
+The analyses to reach Table 3 of the paper
+
+Answer RQ1
+
+* src/data_analysys_rq1_best_overall.ipynb
+Anayses to answer rq1
+
+* src/data_analysys_rq2_loc_strategy.ipynb
+Anayses to answer rq2
+
+* src/data_analysys_rq1_best_overall.ipynb
+Anayses to answer rq3
+
+* src/data_analysys_rq4_different_llms.ipynb
+Anayses to answer rq4
 
 
-# Replicating paper 
-Explore the script
+# Replicating paper recomputing inference results
+Explore the main scripts
 
-* **`src/main.py`**
+* src/main_rq1_best_overall.py
+* src/main_rq2_fault_localization.py
+* src/main_rq3_example_retrieval.py
 
-This script demonstrates how to **estimate costs and run experiments** for replicating the results of the associated paper.
-It also contains all code to run all runned experiments for the paper
+Those scripts demonstrates how to **estimate costs and run experiments** for replicating the results of the associated paper.
+It also contains all code to run all runned experiments for the paper. (Note there is not a main rq4, as rq1 uses the data from rq3, but the data analyses is different, more focus on fault localization)
+
 ## Overview
 
 The script is divided into two main parts:
 
 1. **Cost Estimation (before `exit()`)**
-   * Uses a cost-stub LLM (`LLM_COST_STUB_RESPONSE_IS_PROMPT`) to simulate LLM queries and collect cost statistics.
-   * Iterates over all combinations of tests in the paper
-   * A debug llm_without_api exist there in order for the user to see the prompts in a full pipeline.
+   * Uses a cost-stub LLM to simulate LLM queries and collect cost statistics.
+   * A debug llm_without_api exist there in order for the user to see the prompts in a full pipeline (to debug and see interactivly what is passed to the LLMs)
   
-You must comment both parts before the exit() to test with a real LLM
+You must comment both both evalute_all before exit(), specially the llm_without_api to run with actual models (as llm_without_api is interactive and blocking waiting for user input).
+
+You must also comment the exit() to run
 
 2. **Actual Experiment Execution (after `exit()`)**
 
-   * Preferred method for **running one experiment efficiently**.
-   * The process is divided into **three passes**:
-     * **Part 1 – Localization**: prompts the LLM for assertion positions.
-     * **Part 2 – Assertion Candidate Generation**: prompts the LLM for assertion candidates.
-     * **Part 3 – Verification**: verifies results in parallel (safe to parallelize).
-
-   This separation speeds up experiments by avoiding bottlenecks in the verification step. Comment the exit() and the cost and llm_without_api calls to run all paper experiments.
+Runs the experimnts performing for each configuration, localization infernce, assetion inference and verification. Verification multicore. 
 
 ## Switching from Stub to Real LLM
 
-By default, the script uses the cost stub (`llm_cost_stub`) to simulate responses.
-To replicate experiments with actual models, **replace the stub with a real LLM**:
+Note in order to use a real LLM, for Bedrock you must have as a environmental variable a: 
 
-```python
-import os
-openai_api_key = os.getenv("OPENAI_API_KEY")
-if openai_api_key is None:
-    raise ValueError("API key not found. Set the OPENAI_API_KEY environment variable.")
 
-llm_openai = llm_open_ai.OpenAI_LLM(
-    "gpt_4.1", 
-    model="gpt-4.1-2025-04-14", 
-    max_context_size=128000, 
-    openaiKey=openai_api_key, 
-    verbose=0
-)
+Therefore you must have a valid OPENAI_API_KEY in your environment AWS_BEARER_TOKEN_BEDROCK and AWS_DEFAULT_REGION set. 
 
-# Then pass `llm_openai` instead of `llm_cost_stub` into evaluate_all(...)
-```
-
-Therefore you must have a valid OPENAI_API_KEY in your environment
+For using gpt you have to set a "OPENAI_API_KEY on th environment. Failt to do so a mock that only answer "Mock Reply" is used.
 
 
 # Configurations
 
 ## Configuring other LLMS
-New LLMs can be added in `src/llm/llm_configurations.py`.
-Each LLM must implement the following class:
+New LLMs can be added , see `src/llm/llm_configurations.py`.
+Each LLM must implement the following functions extended the LLM class:
 ```python
-class LLM:
-    def __init__(self, name):
-        self.name = name
+class LLM_my_new_llm(LLM): 
+    # dummy  llm that only responds with "Dummy response"
+    def _get_response(self, prompt:str): 
+       return "Dummy response"
+```
+After that we provide a factory for the LLMs so it is best to add to `src/llm/llm_configurations.py` and entry to the created llm such as in MODEL_REGISTRY add: 
 
-    def get_response(self, prompt):
-        raise NotImplementedError("Subclasses must implement the get_response method")
-
-    def get_name(self):
-        return self.name
-
-    def set_system_prompt(self):
-        raise NotImplementedError("Subclasses must implement the set_system_prompt method")
+```python
+    "my_new_llm": ModelInfo(
+        provider="debug",
+        model_id="my_new_llm",
+        max_context=128_000,
+        cost_1M_in=0,
+        cost_1M_out=0
+    ),
 ```
 
-### Example LLM Implementations
-Implementations present in llm_configuration.py
-- `LLM_COST_STUB_RESPONSE_IS_PROMPT`: Estimates utilization costs.
-- `LLM_YIELD_RESULT_WITHOUT_API`: Requires manual ChatGPT interaction.
-- `LLM_EMPTY_RESPONSE_STUB`: Always returns empty responses.
-
-Example usage:
+With that we can create the llm directly with
 ```python
-llm_stub = llm_configurations.LLM_COST_STUB_RESPONSE_IS_PROMPT("stub")
-llm_without_api = llm_configurations.LLM_YIELD_RESULT_WITHOUT_API("without_api")
-llm_stub_empty = llm_configurations.LLM_EMPTY_RESPONSE_STUB("stub_empty")
+my_new_llm = LLM_my_new_llm("some_name", MODEL_REGISTRY["my_new_llm"])
 ```
+Optional you can extend the function 
+on `src/llm/llm_create.py`, create_llm, adding a case to youts and creted like so 
+```python
+my_new_llm = create_llm("my_new_llm")
+``` 
+
+after that to use is like the several examples that do exist on the main_rq*.py files.
 
 ### Running LLM Evaluations
 ```python
@@ -287,14 +299,11 @@ Inside this directory, several files will be generated:
 - **verifier_output.txt** → The complete output from the Dafny verifier.
 
 
-# For RQ4 the following folders from previous runs have to be copied
-ricostynha@nobara-pc (DESKTOP):~/Desktop/dafny_assertion_inference/results/dafny_llm_results_rq4$ cp -r ../dafny_llm_results_best_overall/claude-opus-4.5__nAssertions_ALL_nRounds_1_nRetries_1_addError_True_addExamp_3_alpha_0.25_ExType_ExampleStrategies.DYNAMIC_loc_LocStrategies.LLM_EXAMPLE .
-ricostynha@nobara-pc (DESKTOP):~/Desktop/dafny_assertion_inference/results/dafny_llm_results_rq4$ cp -r ../dafny_llm_results_best_overall/claude-opus-4.5__nAssertions_ALL_nRounds_1_nRetries_1_addError_True_addExamp_3_alpha_0.25_ExType_ExampleStrategies.DYNAMIC_loc_LocStrategies.LAUREL_BETTER .
-ricostynha@nobara-pc (DESKTOP):~/Desktop/dafny_assertion_inference/results/dafny_llm_results_rq4$ cp -r ../dafny_llm_results_best_overall/claude-haiku-4.5__nAssertions_ALL_nRounds_1_nRetries_1_addError_True_addExamp_3_alpha_0.25_ExType_ExampleStrategies.DYNAMIC_loc_LocStrategies.LLM_EXAMPLE .
-ricostynha@nobara-pc (DESKTOP):~/Desktop/dafny_assertion_inference/results/dafny_llm_results_rq4$ ls
-claude-haiku-4.5__nAssertions_ALL_nRounds_1_nRetries_1_addError_True_addExamp_3_alpha_0.25_ExType_ExampleStrategies.DYNAMIC_loc_LocStrategies.LLM_EXAMPLE
-claude-opus-4.5__nAssertions_ALL_nRounds_1_nRetries_1_addError_True_addExamp_3_alpha_0.25_ExType_ExampleStrategies.DYNAMIC_loc_LocStrategies.LAUREL_BETTER
-claude-opus-4.5__nAssertions_ALL_nRounds_1_nRetries_1_addError_True_addExamp_3_alpha_0.25_ExType_ExampleStrategies.DYNAMIC_loc_LocStrategies.LLM_EXAMPLE
-ricostynha@nobara-pc (DESKTOP):~/Desktop/dafny_assertion_inference/results/dafny_llm_results_rq4$ 
+# Consierations for full reproducability
 
+Note When running a main_rq* the results are dumped on a diretcory with name results/dafny_llm_results 
+
+when ending they have to be manually copied to a folder that matches the specific data_analyses we want to perform 
+
+Also note that the results from rq4, correspond to some models that are run on rq1 and have to be copied manually.
 
