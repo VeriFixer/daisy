@@ -1,21 +1,33 @@
 # Dockerfile - Fully self-contained Ubuntu 22.04 image
 FROM ubuntu:24.04
 
-# Avoid interactive prompts
+# ------------------------------------------------------------------------------
+# Global environment configuration
+# ------------------------------------------------------------------------------
+
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 WORKDIR /app
 
-# --- Install system dependencies ---
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl wget sudo make build-essential unzip zip python3 python3-pip python3-venv \
-    libicu-dev tzdata ca-certificates git && \
-    rm -rf /var/lib/apt/lists/*
+# ------------------------------------------------------------------------------
+# Base system dependencies
+# - Build tools
+# - Python runtime
+# - Networking / certificates
+# ------------------------------------------------------------------------------
 
-# --- Install z3 
-# Build and install Z3 from the tagged source to ensure exact version
-ARG Z3_VERSION="4.15.2"
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 python3-pip python3-venv \
+    curl wget make build-essential unzip zip \
+    libicu-dev tzdata ca-certificates git openjdk-17-jdk \
+    && rm -rf /var/lib/apt/lists/* /tmp/*
+
+# ------------------------------------------------------------------------------
+# Z3 SMT Solver (pinned version, prebuilt binary)
+# ------------------------------------------------------------------------------
+
+ARG Z3_VERSION="4.15.4"
 ENV Z3_VERSION=${Z3_VERSION}
 
 RUN set -eux; \
@@ -32,51 +44,71 @@ RUN set -eux; \
     # If python bindings present, install them
     rm -rf /app/z3-${Z3_VERSION}.zip /app/"$dir"
 
-# --- Install .NET SDK 8.0 ---
+# ------------------------------------------------------------------------------
+# .NET SDK (required for Dafny / Laurel tooling)
+# ------------------------------------------------------------------------------
 RUN wget https://dot.net/v1/dotnet-install.sh -O /tmp/dotnet-install.sh && \
     chmod +x /tmp/dotnet-install.sh && \
     /tmp/dotnet-install.sh --channel 8.0 --install-dir /usr/share/dotnet && \
-    ln -s /usr/share/dotnet/dotnet /usr/bin/dotnet
-
-# --- Create python Env 
-RUN python3 -m venv /opt/venv
-ENV PATH="/opt/venv/bin:$PATH"
-
-# --- Install Python dependencies ---
-COPY src/requirements.txt ./src/requirements.txt
-RUN python3 -m pip install --upgrade pip setuptools wheel \
-    && pip3 install --no-cache-dir -r ./src/requirements.txt
-
-# Install OpenJDK for Java/Gradle builds
-RUN apt-get update && apt-get install -y openjdk-17-jdk && \
-    rm -rf /var/lib/apt/lists/*
+    ln -s /usr/share/dotnet/dotnet /usr/bin/dotnet && \
+    rm /tmp/dotnet-install.sh
+# ------------------------------------------------------------------------------
+# Java (required for Java / Gradle-based tooling)
+# ------------------------------------------------------------------------------
 
 ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
 ENV PATH="$JAVA_HOME/bin:$PATH"
 
-# --- Copy entire repository (including vendored submodules) ---
+# ------------------------------------------------------------------------------
+# Python virtual environment and dependencies, and jupyter Lab
+# ------------------------------------------------------------------------------
+
+RUN python3 -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+COPY src/requirements.txt ./src/requirements.txt
+
+RUN python3 -m pip install --upgrade pip setuptools wheel \
+    && pip install --no-cache-dir -r ./src/requirements.txt \
+    && pip install --no-cache-dir notebook ipykernel \
+    && python -m ipykernel install --user --name=python --display-name "Python (venv)"
+
+EXPOSE 8888
+
+# ------------------------------------------------------------------------------
+# Project source code
+# ------------------------------------------------------------------------------
+    
 COPY . /app
 
-# --- Build Dafny fork ---
+# ------------------------------------------------------------------------------
+# Build research tools
+# - Dafny fork
+# - Laurel placeholder finders
+# ------------------------------------------------------------------------------
+
 RUN cd external/dafny_fork && make
 
-# --- Build Laurel placeholder finder ---
 RUN cd external/dafny_laurel_repair/laurel/placeholder_finder \
     && dotnet build placeholder_finder.csproj
 
-# --- Build Laurel+ placeholder finder ---
 RUN cd external/dafny_laurel_repair/laurel/placeholder_finder_better \
     && dotnet build placeholder_finder_laurel_better.csproj
-# --- Create a non-root user ---
+
+# ------------------------------------------------------------------------------
+# Runtime user setup (non-root execution)
+# ------------------------------------------------------------------------------
+
 RUN useradd --create-home researcher
+RUN chown -R researcher:researcher /app
 
-# --- Create temp and ensure permissions ---
-RUN mkdir -p /app/temp && mkdir -p /home/researcher \
-    && chown -R researcher:researcher /app/temp /home/researcher /home/researcher
-
-# --- Switch to non-root user ---
 USER researcher
 ENV HOME=/home/researcher
 ENV PATH="/app/external/dafny_fork:/app/external/dafny_laurel_repair:$PATH"
-# Default command
-CMD ["bash"]
+
+# ------------------------------------------------------------------------------
+# Default entrypoint
+# - Starts Jupyter Lab for interactive use
+# ------------------------------------------------------------------------------
+
+CMD ["bash", "-c", "jupyter lab --ip=0.0.0.0 --port=8888 --no-browser"]

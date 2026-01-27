@@ -1,0 +1,10 @@
+# Never copy git metadata
+.git
+.gitignore
+.gitmodules
+
+# Optional: editor / OS junk
+__pycache__
+*.pyc
+.ipynb_checkpoints
+.DS_Store
