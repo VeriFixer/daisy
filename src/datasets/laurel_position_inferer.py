@@ -7,20 +7,25 @@ import llm.llm_pipeline as llm_pipe
 
 from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from enum import Enum
 
 # Add the laurel directory to sys.path (to call modified wrapper to call C# script)
 sys.path.append(os.path.abspath(gl.PATH_TO_LAUREL))
 from placeholder_wrapper import call_placeholder_finder
 
-def check_laurel_errors(assertion_group, type=""):
+class LaurelS(Enum):
+    LAUREL = "LAUREL"
+    LAUREL_BETTER = "LAUREL_BETTER"
+
+
+def check_laurel_errors(assertion_group: assertion_lib.assertionGroup, type : LaurelS):
     str_id = assertion_lib.get_assertion_group_string_id(assertion_group)
     assertion_group_name = assertion_lib.get_assertion_group_string_id(assertion_group)
-    method = assertion_lib.get_method_from_assertion_group(assertion_group)
     file = assertion_lib.get_file_from_assertion_group(assertion_group)
     file_folder = file.file_path.parent
     base_path = file_folder / assertion_group_name 
 
-    prefix = "laurel_" + type + "error.txt"
+    prefix :str = "laurel_" + type.value + "error.txt"
 
     laurel_error_file = base_path / prefix
     
@@ -36,10 +41,9 @@ def check_laurel_errors(assertion_group, type=""):
     return 0
 
 
+from typing import cast
 
-def run_laurel_fix_position_finder_and_create_laurel_files(assertion_group, type=""):
-    str_id = assertion_lib.get_assertion_group_string_id(assertion_group)
-    
+def run_laurel_fix_position_finder_and_create_laurel_files(assertion_group: assertion_lib.assertionGroup, type : LaurelS):
     assertion_group_name = assertion_lib.get_assertion_group_string_id(assertion_group)
     method = assertion_lib.get_method_from_assertion_group(assertion_group)
     file = assertion_lib.get_file_from_assertion_group(assertion_group)
@@ -48,7 +52,6 @@ def run_laurel_fix_position_finder_and_create_laurel_files(assertion_group, type
     
     # program without assertion group
     program_without_assertion_group_file = base_path / "program_without_assertion_group.dfy"
-    method_with_missing_assertions = ""
     # Error message
     error_message = ""
     error_message_file = base_path / "verifier_output.txt"
@@ -60,22 +63,25 @@ def run_laurel_fix_position_finder_and_create_laurel_files(assertion_group, type
 
     error_message = llm_pipe.extract_error_blocks(error_message)
     
-    if(type == ""):
+    if(type == LaurelS.LAUREL):
          use_laurel_better=False
-    if(type == "BETTER"):
+    else:
          use_laurel_better=True
 
-    method_with_placeholder, error = call_placeholder_finder(
+    method_with_placeholder : str
+    error : str
+
+    method_with_placeholder, error = cast(tuple[str,str], call_placeholder_finder(
       error_message,
       program_without_assertion_group_file,
       method_name,
       use_laurel_better
-    )
+    ))
 
     # Get laurel fix positions
-    laurel_infered_position_missing_assertions = []
+    laurel_infered_position_missing_assertions: list[int] = []
     laurel_assertion_placeholder = "<assertion> Insert assertion here </assertion>"
-    method_with_assertions_no_position_hint = []
+    method_with_assertions_no_position_hint: list[str] = []
     added_lines = 0
     for id, line in  enumerate(method_with_placeholder.splitlines(keepends=True)):
          if(laurel_assertion_placeholder in line):
@@ -86,7 +92,7 @@ def run_laurel_fix_position_finder_and_create_laurel_files(assertion_group, type
 
 
     # Save Laurel Restuls :
-    prefix = "laurel_" + type
+    prefix = "laurel_" + type.value
 
     placeholder_file = prefix + "method_with_placeholder_on_position.dfy"
     laurel_assertion_placeholder_file = base_path / placeholder_file 
@@ -108,8 +114,11 @@ def run_laurel_fix_position_finder_and_create_laurel_files(assertion_group, type
 
     return method_with_placeholder, laurel_infered_position_missing_assertions
     
+from pathlib import Path
+import utils.dataset_class as dat
+from utils.run_parallel_or_seq import run_parallel_or_seq
 
-def expand_dataset_with_laurel_fix_position_results(dataset_dir, parallel, type=""):
+def expand_dataset_with_laurel_fix_position_results(dataset_dir : Path, parallel: bool, laurelType : LaurelS):
     """
     Get all possible positions for the fix that makes everything working.
     
@@ -117,31 +126,25 @@ def expand_dataset_with_laurel_fix_position_results(dataset_dir, parallel, type=
     - DATASET_DIR: Path to the dataset directory.
     - parallel: If 1, runs in parallel using ThreadPoolExecutor. If 0, runs sequentially.
     """
-    assertion_dataset = assertion_lib.Dataset(dataset_dir)
+    assertion_dataset = dat.Dataset.from_dataset_assertion_groups(dataset_dir) 
     assertion_groups = assertion_dataset.get_all_assertion_groups()
-    l = len(assertion_groups)
 
-    if parallel == 0:
-        for assertion_group in tqdm(assertion_groups, desc="Creatin Laurel fix positions", total=l):
-            run_laurel_fix_position_finder_and_create_laurel_files(assertion_group, type)
-    else:
-        PHYSICAL_CORES = os.cpu_count() // 2  # Logical cores usually = 2x physical
-        SAFE_THREADS = max(1, PHYSICAL_CORES - 1)  # Prevent over-subscription
-        with ThreadPoolExecutor(max_workers=SAFE_THREADS) as executor:
-            futures = {executor.submit(run_laurel_fix_position_finder_and_create_laurel_files, ag, type): ag for ag in assertion_groups}
-            for future in tqdm(as_completed(futures), total=l, desc="Computing syntatic valid positions"):
-                future.result()
+    return run_parallel_or_seq(
+        assertion_groups,
+        run_laurel_fix_position_finder_and_create_laurel_files,
+        "Creating Laurel Fix Pos",
+        laurelType,
+        parallel=parallel,
+    )
 
-def check_all_errors(dataset_dir, type=""):
-    assertion_dataset = assertion_lib.Dataset(dataset_dir)
+
+def check_all_errors(dataset_dir : Path, type : LaurelS):
+    assertion_dataset = dat.Dataset.from_dataset_all(dataset_dir)
     assertion_groups = assertion_dataset.get_all_assertion_groups()
-    l = len(assertion_groups)
 
     err_n = 0
     for assertion_group in assertion_groups:
         err_n += check_laurel_errors(assertion_group, type)
-    # 77 errors
-    # 419 dao bem ...
     print(err_n)
     print(len(assertion_groups))
        
@@ -149,6 +152,6 @@ def check_all_errors(dataset_dir, type=""):
 # Add regular Laurel position inference
 def laurel_position_inferer():
     print("Expand dataset computing Laurel fix position placeholder")
-    expand_dataset_with_laurel_fix_position_results(gl.DAFNY_ASSERTION_DATASET, 1, "")
+    expand_dataset_with_laurel_fix_position_results(gl.DAFNY_ASSERTION_DATASET, gl.GATHERER_DATASET_PARALLEL, LaurelS.LAUREL)
     print("Expand dataset computing Laurel Better fix position placeholder")
-    expand_dataset_with_laurel_fix_position_results(gl.DAFNY_ASSERTION_DATASET, 1, "BETTER")
+    expand_dataset_with_laurel_fix_position_results(gl.DAFNY_ASSERTION_DATASET, gl.GATHERER_DATASET_PARALLEL, LaurelS.LAUREL_BETTER)

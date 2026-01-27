@@ -6,25 +6,10 @@ from utils.run_parallel_or_seq import run_parallel_or_seq
 
 import os 
 import re
+from pathlib import Path
 
-def dafny_file_get_all_assertions(dafny_exec, dafny_program, dafny_destination_dataset_path, temp_dir):
-    """
-    Generates all assertions for Dafny file and saves it to the specified path.
-
-    Args:
-        dafny_exec (str): Path to the Dafny executable.
-        dafny_program (str): Path to the Dafny program file.
-        dafny_destination_dataset_path (str): Path where the dataset should be saved.
-
-    Returns:
-        int: number of generated tests, 0 can happen if the file does not verify at the beginning 
-        or no assertion was found that when removing it the file stoped verifying
+def dafny_file_get_all_assertions(dafny_exec : Path, dafny_program : Path, dafny_destination_dataset_path : Path, temp_dir : Path):
     
-    Raises:
-        FileNotFoundError: If the Dafny program file does not exist.
-        ValueError: If the Dafny program file is empty.
-        IOError: If there is an error reading the Dafny file or writing the dataset.
-    """
     if not os.path.isfile(dafny_exec):
         raise FileNotFoundError(f"The file '{dafny_exec}' does not exist.")
 
@@ -37,10 +22,10 @@ def dafny_file_get_all_assertions(dafny_exec, dafny_program, dafny_destination_d
     with open(dafny_program, 'r') as dafny_file:
         dafny_file_text = dafny_file.read()
 
-    program_name = dafny_program.split("/")[-1]
+    program_name: str = dafny_program.name
     program_converted_name = program_name[:-4]+"_dfy"
 
-    (status, stdout, stderr) = dafny_runner.run_dafny_from_text(dafny_exec, dafny_file_text, temp_dir, option="asserttree")
+    (_, stdout, _) = dafny_runner.run_dafny_from_text(dafny_exec, dafny_file_text, temp_dir, option="asserttree")
     
     program_folder = dafny_destination_dataset_path  / program_converted_name
     os.makedirs(program_folder, exist_ok=True)
@@ -76,7 +61,7 @@ def dafny_get_all_assertions():
 
     print("Gathering all assertions from DafnyBench")
 
-    def process_file(file_path, dafny_exec, base_assertion_dataset, temp_folder):
+    def process_file(file_path : Path, dafny_exec : Path, base_assertion_dataset : Path, temp_folder : Path):
         return dafny_file_get_all_assertions(
             dafny_exec, file_path, base_assertion_dataset, temp_folder
         )

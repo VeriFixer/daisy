@@ -48,7 +48,9 @@ def generate_and_pickle(dataset_dir: Path, model):
                 "oracle_pos" : oracle_pos,
                 # keep the tensors for immediate use if you want
                 "error_embeds": err_emb,
-                "code_embeds": cod_emb
+                "code_embeds": cod_emb,
+                "method_without_assertion_group" : (grp_dir / "method_without_assertion_group.dfy").read_text(encoding='utf-8')
+           
             })
 
      # After gathering all entries, build TF-IDF
@@ -85,6 +87,7 @@ def load_entries_from_pickles(dataset_dir: Path):
                 "code_snippet":  (grp_dir / "method_with_assertion_placeholder.dfy").read_text(encoding='utf-8'),
                 "oracle_pos" : (grp_dir / "oracle_fix_position.txt").read_text(encoding='utf-8'),
                 "assertions": str(json.load(open(grp_dir / "oracle_assertions.json"))),
+                "method_without_assertion_group" : (grp_dir / "method_without_assertion_group.dfy").read_text(encoding='utf-8'),
                 "error_embeds": err_emb,
                 "code_embeds": cod_emb
             })
@@ -174,7 +177,7 @@ def retrieve_by_error_and_code(
                 continue # method already inserted in other examples
             if e["prog"] == prog_original:
                 _, _, method_startstart ,*_ = e["group"].split("_", 3)
-                if method_start == orig_method_start: # They represent the sam emethod can be skipped
+                if method_start == orig_method_start: # They represent the same method can be skipped
                     continue
                 
             inserted_progs.append((e["prog"], method_start))
@@ -186,7 +189,8 @@ def retrieve_by_error_and_code(
             "error_message": e["error_message"],
             "code_snippet": e["code_snippet"],
             "assertions" : e["assertions"],
-            "oracle_pos" : e["oracle_pos"]
+            "oracle_pos" : e["oracle_pos"],
+            "method_without_assertion_group" : e['method_without_assertion_group']
              
         })
     return results

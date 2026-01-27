@@ -1,0 +1,12 @@
+CairoSVG
+matplotlib
+numpy
+openai
+pandas
+scikit_learn
+sentence_transformers
+torch
+tqdm
+psutil
+statsmodels
+boto2

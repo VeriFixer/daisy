@@ -62,28 +62,29 @@ if __name__ == "__main__":
         change_assertion_per_text="", #Assertion with oracle to retrieve position
         base_prompt=  gl.BASE_PROMPT,
         localization_base_prompt=gl.LOCALIZATION_BASE_PROMPT,
-        examples_to_augment_prompt_type="DYNAMIC", # "RANDOM", "DYNAMIC", "NONE", "EMBEDDED" "TFIDF" all options    
+        examples_to_augment_prompt_type= llm_pipeline.ExampleStrategies.DYNAMIC, # "RANDOM", "DYNAMIC", "NONE", "EMBEDDED" "TFIDF" all options    
                                                 # DYNAMIC represents my code/error message embeddings
         examples_weight_of_error_message = 0.5, # Wieght of the erro message in case of DYNAMIC in relantion with code                                 
         number_examples_to_add=3,
 
         # Only used in LLM_EXAMPLE (used DYNAMIC 3 examples 0,5 underneath)
         # Fields ignore for all except LLM_EXAMPLE
-        examples_to_augment_prompt_type_pos="DYNAMIC", # "RANDOM", "DYNAMIC", "NONE", "EMBEDDED" "TFIDF" all options    
+        examples_to_augment_prompt_type_pos= llm_pipeline.ExampleStrategies.DYNAMIC, # "RANDOM", "DYNAMIC", "NONE", "EMBEDDED" "TFIDF" all options    
                                                 # DYNAMIC represents my code/error message embeddings
         examples_weight_of_error_message_pos = 0.5, # Wieght of the erro message in case of DYNAMIC in relantion with code                                 
         number_examples_to_add_pos=3,
         limit_example_length_bytes = 1200, # Option Not implemented
-        verifier_output_filter_warnings = 1, # If 1 only errors are passed in the verifier ouput string
-        system_prompt=gl.SYSTEM_PROMPT,
-        skip_original_verification=1,
 
-        localization = "LLM_EXAMPLE",
+        verifier_output_filter_warnings = True, # If 1 only errors are passed in the verifier ouput string
+        system_prompt=gl.SYSTEM_PROMPT,
+        skip_original_verification= True,
+
+        localization = llm_pipeline.LocStrategies.LLM_EXAMPLE,
         # Options related with if will prompt LLM or gathered from saved results
-        skip_verification=1,
-        only_verify = 0,
-        only_get_location = 0,
-        only_get_assert_candidate = 0,
+        skip_verification= True,
+        only_verify = False,
+        only_get_location = False,
+        only_get_assert_candidate = False,
     )
  
     #run_llm_get_localization(method_missing_assertions, original_error, llm, 
@@ -126,19 +127,14 @@ if __name__ == "__main__":
 
       for assertion_opt in assertions_ziped:
         method_fixed = method[:]
-        assertions_list = []
+        assertions_list: list[str] = []
         for assertion in assertion_opt:
               assertions_list.append(assertion)
               method_fixed = method_fixed.replace(gl.ASSERTION_PLACEHOLDER , assertion, 1)
 
-        #print(method_fixed)
-
         method_fixed_binary = method_fixed.encode("utf-8")
         code_binary_new = code_binary[:method_start_byte] +  method_fixed_binary + code_binary[method_end_byte+1:]
         code_new = code_binary_new.decode("utf-8")
-
-        #print(code_new)
-
 
         status, stdout_msg, stderr = dafny_runner.run_dafny_from_text(gl.DAFNY_EXEC, code_new, gl.TEMP_FOLDER)
         if(run_options.verifier_output_filter_warnings):

@@ -22,7 +22,9 @@ class TestRunDafny(unittest.TestCase):
     def test_program_verifies(self):
         self.setUp()
         # Text without any assertions
-        (program_status, _ , _) =  run_dafny(self.dafny_exec, self.test_verify_program, self.destination_path_folder, option="verify")
+        ret =  run_dafny(self.dafny_exec, self.test_verify_program, self.destination_path_folder, option="verify")
+        (program_status, _ , _) = ret 
+        print(ret)
         self.assertEqual(program_status, "VERIFIED")
     def test_program_not_verifies(self):
         # Text with a single valid assertion

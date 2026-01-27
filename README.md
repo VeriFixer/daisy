@@ -287,3 +287,14 @@ Inside this directory, several files will be generated:
 - **verifier_output.txt** → The complete output from the Dafny verifier.
 
 
+# For RQ4 the following folders from previous runs have to be copied
+ricostynha@nobara-pc (DESKTOP):~/Desktop/dafny_assertion_inference/results/dafny_llm_results_rq4$ cp -r ../dafny_llm_results_best_overall/claude-opus-4.5__nAssertions_ALL_nRounds_1_nRetries_1_addError_True_addExamp_3_alpha_0.25_ExType_ExampleStrategies.DYNAMIC_loc_LocStrategies.LLM_EXAMPLE .
+ricostynha@nobara-pc (DESKTOP):~/Desktop/dafny_assertion_inference/results/dafny_llm_results_rq4$ cp -r ../dafny_llm_results_best_overall/claude-opus-4.5__nAssertions_ALL_nRounds_1_nRetries_1_addError_True_addExamp_3_alpha_0.25_ExType_ExampleStrategies.DYNAMIC_loc_LocStrategies.LAUREL_BETTER .
+ricostynha@nobara-pc (DESKTOP):~/Desktop/dafny_assertion_inference/results/dafny_llm_results_rq4$ cp -r ../dafny_llm_results_best_overall/claude-haiku-4.5__nAssertions_ALL_nRounds_1_nRetries_1_addError_True_addExamp_3_alpha_0.25_ExType_ExampleStrategies.DYNAMIC_loc_LocStrategies.LLM_EXAMPLE .
+ricostynha@nobara-pc (DESKTOP):~/Desktop/dafny_assertion_inference/results/dafny_llm_results_rq4$ ls
+claude-haiku-4.5__nAssertions_ALL_nRounds_1_nRetries_1_addError_True_addExamp_3_alpha_0.25_ExType_ExampleStrategies.DYNAMIC_loc_LocStrategies.LLM_EXAMPLE
+claude-opus-4.5__nAssertions_ALL_nRounds_1_nRetries_1_addError_True_addExamp_3_alpha_0.25_ExType_ExampleStrategies.DYNAMIC_loc_LocStrategies.LAUREL_BETTER
+claude-opus-4.5__nAssertions_ALL_nRounds_1_nRetries_1_addError_True_addExamp_3_alpha_0.25_ExType_ExampleStrategies.DYNAMIC_loc_LocStrategies.LLM_EXAMPLE
+ricostynha@nobara-pc (DESKTOP):~/Desktop/dafny_assertion_inference/results/dafny_llm_results_rq4$ 
+
+

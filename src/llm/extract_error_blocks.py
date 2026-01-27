@@ -1,12 +1,12 @@
 
 import re
-def extract_error_blocks(input_string):
+def extract_error_blocks(input_string : str):
     error_pattern = r"^.*Error:.*$"
     warning_pattern = r"^.*Warning:.*$"
 
     lines = input_string.splitlines()
-    error_blocks = []
-    current_block = []
+    error_blocks: list[str] = []
+    current_block: list[str] = []
 
     for line in lines:
         if re.match(error_pattern, line):

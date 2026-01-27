@@ -6,5 +6,13 @@ results/*
 !dataset/
 !results/
 
-!dataset/latest.tar.gz
-!results/latest.tar.gz
+!dataset/dafny_assertion_dataset_test.tar.gz
+!dataset/dafny_assertion_dataset.tar.gz
+
+!results/dafny_llm_results_pre_test_testing_different_models.tar.gz
+!results/dafny_llm_results_rq4__different_llms.tar.gz
+!results/dafny_llm_results_rq3__example_gatherer.tar.gz 
+!results/dafny_llm_results_rq2__loc_strategy.tar.gz
+!results/dafny_llm_results_rq1__best_overall.tar.gz
+
+

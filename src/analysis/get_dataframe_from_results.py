@@ -18,7 +18,7 @@ def _read_file(path: Path) -> Optional[str]:
         return None
 
 
-def _parse_localization(localization_file) -> List[int]:
+def _parse_localization(localization_file : Path) -> List[int]:
     raw = _read_file(localization_file)
     if raw is None:
         return []
@@ -27,8 +27,10 @@ def _parse_localization(localization_file) -> List[int]:
     except Exception:
         return []
 
-def _parse_assertion_dir(assertion_dir):
+def _parse_assertion_dir(assertion_dir : Path):
     verif_text = _read_file(assertion_dir)
+    if(verif_text == None):
+        return
     result = {
         'verified': 0,
         'verification_errors': 0,
@@ -77,9 +79,9 @@ def _parse_assertion_dir(assertion_dir):
     return result
 
 import re
-def retrieve_information_from_dataset_mod(dataset_dir):
+def retrieve_information_from_dataset_mod(dataset_dir : Path):
     # results: Dict[ExperimentKey, Dict[str, Any]] = {}
-    rows = []
+    rows: list[dict[str,Any]] = []
     pattern = re.compile(r"method_start_(\d+)_as_start_(\d+)_end_(\d+)")
     pattern2 = re.compile(r"method_start_(\d+)_as_start_(\d+)_end_(\d+)_as_start_(\d+)_end_(\d+)")
     for prog_dir in dataset_dir.iterdir():
@@ -113,13 +115,14 @@ def retrieve_information_from_dataset_mod(dataset_dir):
                             assert1_in_wo1 = True
                         if(assert_test_start == assertion2_start and assert_test_end == assertion2_end):              
                             assert2_in_wo1 = True
-                if(assert1_in_wo1 and assert2_in_wo1):
-                    without_2_assert_name[grp_dir.name] = "w/o-2 both w/o-1"
-                elif( (not assert1_in_wo1) and (not assert2_in_wo1)):
-                    without_2_assert_name[grp_dir.name] = "w/o-2 none w/o-1" 
-                else:
-                    without_2_assert_name[grp_dir.name] = "w/o-2 one w/o-1" 
-
+                # Removed distintion as we are only doing both w/o-1 now
+                #if(assert1_in_wo1 and assert2_in_wo1):
+                #    without_2_assert_name[grp_dir.name] = "w/o-2 both w/o-1"
+                #elif( (not assert1_in_wo1) and (not assert2_in_wo1)):
+                #    without_2_assert_name[grp_dir.name] = "w/o-2 none w/o-1" 
+                #else:
+                #    without_2_assert_name[grp_dir.name] = "w/o-2 one w/o-1" 
+                without_2_assert_name[grp_dir.name] = "w/o-2" 
 
         for grp_dir in prog_dir.iterdir():
             if not grp_dir.is_dir() or grp_dir.name in ("bin", "obj"):
@@ -147,6 +150,18 @@ def retrieve_information_from_dataset_mod(dataset_dir):
             except:
                 row["assertion_type"] = []
 
+            try:
+              with open(grp_dir / "laurel_LAURELassertion_position.txt", 'r', encoding='utf-8') as f:
+                row["laurel_pos"] = json.load(f)
+            except:
+                row["laurel_pos"] = []   
+
+            try:
+              with open(grp_dir / "laurel_LAUREL_BETTERassertion_position.txt", 'r', encoding='utf-8') as f:
+                row["laurel_better_pos"] = json.load(f)
+            except:
+                row["laurel_better_pos"] = []   
+
             if(row["group"] in  without_1_assert_name):
                 row["benchmark"] = without_1_assert_name[row["group"]]
             elif(row["group"] in  without_2_assert_name):
@@ -158,13 +173,13 @@ def retrieve_information_from_dataset_mod(dataset_dir):
     return rows
 
 
-def retrieve_information_from_dataset(dataset_dir):
+def retrieve_information_from_dataset(dataset_dir : Path):
     # results: Dict[ExperimentKey, Dict[str, Any]] = {}
-    rows = []
+    rows: list [dict[str,Any]] = []
     for prog_dir in dataset_dir.iterdir():
         if not prog_dir.is_dir():
             continue
-        row = {}
+        row: dict[str, Any] = {}
         row["prog"] = prog_dir.name
         for grp_dir in prog_dir.iterdir():
             if not grp_dir.is_dir() or grp_dir.name in ("bin", "obj"):
@@ -193,11 +208,11 @@ def retrieve_information_from_dataset(dataset_dir):
 
 def retrieve_information_from_results(results_dir: Path):
     # results: Dict[ExperimentKey, Dict[str, Any]] = {}
-    rows = []
+    rows: list [dict[str,Any]] = []
     for llm_dir in results_dir.iterdir():
         if not llm_dir.is_dir():
             continue
-        row = {}
+        row: dict[str, Any] = {}
         row["llm"] = llm_dir.name
         for prog_dir in llm_dir.iterdir():
             if not prog_dir.is_dir():
@@ -223,7 +238,7 @@ def retrieve_information_from_results(results_dir: Path):
                 row["local_exist"] = save_local_exist
                 row["localization"] = save_localization
 
-                info_names = set()
+                info_names : set[str] = set()
                 if not verif_root.exists():
                     rows.append(row.copy()) # Row without verification appended
                     row = {}
@@ -242,7 +257,9 @@ def retrieve_information_from_results(results_dir: Path):
                     info_names |= {d.name for d in verif_root.iterdir() if d.is_dir()}
             
                 for assertion_str in info_names:
-                    row.update(_parse_assertion_dir(verif_root / assertion_str / "verif_stdout.txt" ))
+                    assertion_dir_info = _parse_assertion_dir(verif_root / assertion_str / "verif_stdout.txt" )
+                    if(assertion_dir_info is not None):
+                        row.update(assertion_dir_info)
                     rows.append(row.copy())
                     row = {}
                     row["llm"] = llm_dir.name
@@ -254,7 +271,7 @@ def retrieve_information_from_results(results_dir: Path):
     return rows
 
 
-def merge_dataset_and_results(dataset_info, results_info):
+def merge_dataset_and_results(dataset_info : list[dict[str,Any]], results_info : list[dict[str,Any]]):
     """
     Joins the two lists on matching (prog, group) keys.
     Only merges when the key exists in both.
@@ -262,7 +279,7 @@ def merge_dataset_and_results(dataset_info, results_info):
     # Build lookup by (prog, group)
     lookup = {(r["prog"], r["group"]): r for r in dataset_info}
     
-    merged = []
+    merged: list[dict[str, Any]] = []
     for res in results_info:
         key = (res["prog"], res["group"])
         if key in lookup:  # only merge if both exist
@@ -271,50 +288,36 @@ def merge_dataset_and_results(dataset_info, results_info):
             merged.append(combined)
     return merged
 
-def oracle_here_would_fix(n_oracle,found_fixes_position, all_options_fixes_position):
-    n_found_fixes = len(found_fixes_position)
-    if(all_options_fixes_position == []):
-        return False
-    
-    if(n_oracle == 1 and  n_found_fixes == 1):
-        pos = found_fixes_position[0]
-        return pos in all_options_fixes_position
-    if(n_oracle == 2 and  n_found_fixes == 2):
-        pos0 = found_fixes_position[0]
-        pos1 = found_fixes_position[1]
-        if pos0 in all_options_fixes_position[0] and pos1 in all_options_fixes_position[1]:
-           return True
-    
-        return False
-    # These are partial true though (i will insert to be fair the comparation!)
-    if(n_oracle == 1 and  n_found_fixes == 2):
-        pos0 = found_fixes_position[0]
-        pos1 = found_fixes_position[1]
-        # Compare both as it is only necessary one to be in the correct posiiton in true
-        return (pos0 in all_options_fixes_position) or (pos1 in all_options_fixes_position)
-    if(n_oracle == 2 and  n_found_fixes == 1):
-          pos = found_fixes_position[0]
-          return pos in all_options_fixes_position[0] or pos in all_options_fixes_position[1]
-    
-def assertion_here_syntatic_valid( n_oracle,found_fixes_position, all_syntatic_fixes_position):
-    n_found_fixes = len(found_fixes_position)
 
-    if(n_oracle == 1 and  n_found_fixes == 1):
-        pos = found_fixes_position[0]
-        return pos in all_syntatic_fixes_position
-    if(n_oracle == 2 and  n_found_fixes == 2):
-        pos0 = found_fixes_position[0]
-        pos1 = found_fixes_position[1]
-        return pos0 in all_syntatic_fixes_position or pos1 in all_syntatic_fixes_position
-    # These are partial true though
-    if(n_oracle == 1 and  n_found_fixes == 2):
-        pos0 = found_fixes_position[0]
-        pos1 = found_fixes_position[1]
-        # As I tru multiple assertion only need one to be syntatic balid
-        return pos0 in all_syntatic_fixes_position or pos1 in all_syntatic_fixes_position
-    if(n_oracle == 2 and  n_found_fixes == 1):
-        pos = found_fixes_position[0]
-        return pos in all_syntatic_fixes_position
+
+def oracle_here_would_fix(
+    n_oracle : int,
+    found_fixes_positions: list[int],
+    all_options_fixes_positions: list[list[int]],
+) -> bool:
+    """
+    Returns True if any found fix position appears in any oracle option.
+    Position 0 corresponds to all valid positions for the first assertion.
+    """
+    valid_positions = {
+        pos
+        for option in all_options_fixes_positions
+        for pos in option
+    }
+
+    return any(pos in valid_positions for pos in found_fixes_positions)
+
+
+def assertion_here_syntatic_valid(
+    n_oracle : int,
+    found_fixes_positions: list[int],
+    all_syntactic_fixes_positions: list[int],
+) -> bool:
+    """
+    Returns True if any found fix position is syntactically valid.
+    """
+    valid_positions = set(all_syntactic_fixes_positions)
+    return any(pos in valid_positions for pos in found_fixes_positions)
     
 
 def create_pandas_dataset_and_expand_it_with_computed_data(
@@ -327,7 +330,7 @@ def create_pandas_dataset_and_expand_it_with_computed_data(
     expanded = []
     for row in merged_rows:
         # pull in the raw lists (they may be missing)
-        all_options = row['all_lines_where_oracle_fixes_file']
+        all_options: list[list[int]] = row['all_lines_where_oracle_fixes_file']
         localization_positions = row['localization']
         all_syntatic = row['all_syntatic_valid_lines']
  
@@ -337,10 +340,14 @@ def create_pandas_dataset_and_expand_it_with_computed_data(
         n_found = len(localization_positions)
 
         # 3) Compute the two custom flags
+        all_options_modified = all_options
+        if(type(all_options) == list and len(all_options) > 0 and type(all_options[0]) == int):
+            all_options_modified = [all_options]
+
         oracle_fix = oracle_here_would_fix(
             n_oracle,
             localization_positions,
-            all_options
+            all_options_modified
         )
         syntactic = assertion_here_syntatic_valid(
             n_oracle,
@@ -366,7 +373,7 @@ def create_pandas_dataset_and_expand_it_with_computed_data(
 
     return pd.DataFrame(expanded)
 # Example usage:
-def get_pandas_dataset(dataset_dir, result_dir):
+def get_pandas_dataset(dataset_dir : Path, result_dir : Path):
     dataset_rows = retrieve_information_from_dataset_mod(dataset_dir)
     results_rows = retrieve_information_from_results(result_dir)
     merged = merge_dataset_and_results(dataset_rows, results_rows)

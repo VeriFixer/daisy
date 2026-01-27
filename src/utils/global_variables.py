@@ -1,133 +1,120 @@
-# OPTION
-GATHERER_DATASET_PARALLEL = 1
-# Per defualt do not regernate the dataset embeddings but instead read it from a picke file
-GENERATE_DATASET_EMBEDDINGS = 0
-VERIFIER_MAX_MEMORY = 24
-
 # AUTOMATIC SETTTED
 from pathlib import Path
 
-def find_repo_root(marker=".git"):
+# Function used to Find Base Path, path of .git repo
+def find_repo_root(marker : str =".repo_multi_assertions_marker"):
     """Finds the root of the repository by looking for a marker (default: .git)."""
-    current = Path(__file__).resolve().parent
-    while current != current.root:
+    current: Path = Path(__file__).resolve().parent
+    while str(current) != current.root:
         if (current / marker).exists():
             return current
         current = current.parent
     raise FileNotFoundError("Could not find repository root. Make sure you're running inside a valid repo.")
 # BASE_PATH is the root of the repository
-BASE_PATH = find_repo_root()
-#print(f"BASE_PATH: {BASE_PATH}")
-# AUTOMATIC OTHER VARIABLES
 
-# Depending on the version of dafny it can depend if it works or not
-# Diferent version can have different behavious (to avoid that)
-# Only the fork must be used to gatherer the dataset.
+# OPTIONS -------------------------------------------------------
+RUN_TEST_THAT_COST_MONEY : bool = False
+GATHERER_DATASET_PARALLEL : bool = True
+# Per default do not regenerate the dataset embeddings but instead read it from a picke file
+GENERATE_DATASET_EMBEDDINGS : bool = False
 
-DAFNY_EXEC = BASE_PATH/"external/dafny_fork/Binaries/Dafny"
-DAFNY_MODIFIED_EXEC_FOR_ASSERTIONS = DAFNY_EXEC
+VERIFIER_TIME_LIMIT : int = 60 # In seconds
+VERIFIER_MAX_MEMORY : int = 24 # In Gigabytes
 
-DAFNY_DATASET = BASE_PATH /"external/DafnyBenchFork/DafnyBench/dataset/ground_truth"
+BASE_PATH: Path = find_repo_root()
+TEMP_FOLDER: Path = BASE_PATH / "temp"
+DAFNY_EXEC: Path = BASE_PATH/"external/dafny_fork/Binaries/Dafny"
+
+DAFNY_MODIFIED_EXEC_FOR_ASSERTIONS: Path = DAFNY_EXEC
+UNIT_TESTS_DIR : Path = BASE_PATH/"src/tests"
+DAFNY_DATASET: Path = BASE_PATH /"external/DafnyBenchFork/DafnyBench/dataset/ground_truth"
+
+DAFNY_BASE_ASSERTION_DATASET: Path  = BASE_PATH / "dataset/dafny_assertion_all"
+DAFNY_ASSERTION_DATASET: Path  = BASE_PATH / "dataset/dafny_assertion_dataset"
+DAFNY_ASSERTION_DATASET_TEST: Path  = BASE_PATH / "dataset/dafny_assertion_dataset_test"
+
+LLM_RESULTS_DIR: Path  = BASE_PATH / "results/dafny_llm_results"
+LLM_COSTS_DIR: Path  = BASE_PATH / "results/costs"
+LLM_RESULTS_DIR_TEST: Path  = BASE_PATH / "results/dafny_llm_results_test"
+
+PATH_TO_LAUREL: Path  = BASE_PATH / "external/dafny_laurel_repair/laurel"
+
+ASSERTION_PLACEHOLDER : str = "/*<Assertion is Missing Here>*/"
+
+BASE_PROMPT : str = """
+Task:
+For each location marked as needing assertions, return exactly 10 valid Dafny assertions that could fix the error at that point. 
+
+Output:
+- A JSON array of arrays, one inner array per missing assertion location.
+- Each inner array must have exactly 10 strings, each string a valid Dafny assertion ending with a semicolon.
+- Escape double quotes as \\".
+- Do NOT output explanations, markdown, or any other text.
+
+Examples:
+# One missing position
+[
+  ["assert C;", "assert D;", "...", "assert J;"]
+]
+
+# Two missing positions
+[
+  ["assert A;", "assert B;", "...", "assert J;"],
+  ["assert C;", "assert D;", "...", "assert L;"]
+]
+"""
+
+LOCALIZATION_BASE_PROMPT : str = """
+You are given a Dafny method with line numbers.
+Return the line numbers AFTER which helper assertions should be inserted to fix verification errors.
+
+FORMAT:
+- JSON list only (e.g., [3], [5,7]).
+- At least one number.
+- Do NOT output any explanations.
+
+RULES:
+- Line numbers refer to the original program before insertions.
+- Assertions are inserted independently after each listed line.
+- Only insert inside the method body (between { and }).
+- Never insert in signatures, requires, ensures or loop invariants
+- The CODE section is your only source for line numbering. Disregard line numbers in the Error logs, as they do not match the local snippet.
+
+INSERT EXAMPLE:
+
+Original:
+5: {
+6: a := b;
+7: c := d;
+8: e := f;
+9: }
+
+Answer: [6,8]
+
+Becomes:
+5: {
+6: a := b;
+7: <assertion>
+8: c := d;
+9: e := f;
+10: <assertion>
+11: }
+
+HEURISTICS (guidance, not mandatory):
+These heuristics guide typical proof-repair behavior, but you may choose other valid placements 
+- Failing assert → insert just before it.
+- Postcondition/forall → near end of block.
+- Loop invariant failures → end of loop body.
+- Timeout/subset/domain → right before problematic stmt.
+- Prefer after assignments, calls, swaps, updates.
+
+Return ONLY the JSON list of line numbers.
+"""
+
+
+SYSTEM_PROMPT : str = """You are a dafny developer code expert"""
+
+
 import os
-TEMP_FOLDER = BASE_PATH / "temp"
 if(not os.path.exists(TEMP_FOLDER)):
   os.mkdir(TEMP_FOLDER)
-
-DAFNY_BASE_ASSERTION_DATASET = BASE_PATH / "dataset/dafny_assertion_all"
-DAFNY_ASSERTION_DATASET = BASE_PATH / "dataset/dafny_assertion_dataset"
-
-DAFNY_ASSERTION_DATASET_TEST = BASE_PATH / "dataset/dafny_assertion_dataset_test"
-
-LLM_RESULTS_DIR = BASE_PATH / "results/dafny_llm_results"
-LLM_RESULTS_DIR_TEST = BASE_PATH / "results/dafny_llm_results_test"
-
-PATH_TO_LAUREL = BASE_PATH / "external/dafny_laurel_repair/laurel"
-
-ASSERTION_PLACEHOLDER = "/*<Assertion is Missing Here>*/"
-
-BASE_PROMPT = """
-The Dafny code below fails verification due to missing helper assertions.
-Locations needing assertions are marked. For each location, return a JSON array of exactly 10 valid Dafny assertions that could fix the error at that point.
-Output: a list of JSON arrays, one per location. No explanations or markdown. Escape double quotes as \\".
-Examples:
-If one position:
-[
-  ["assert C;", "assert D;", ...] 
-]
-If two positions:
-[
-  ["assert A;", "assert B;", "assert str2 != \\"\\";", ...],
-  ["assert C;", "assert D;", ...]
-]
-If more, continue the pattern (one inner list per position)
-Now generate the output do not add any commentary, give only but only the required answer in json format:
-"""
-
-LOCALIZATION_BASE_PROMPT = """
-You are given a Dafny method with line numbers. 
-Your task: return 1 or 2 or more line numbers after which a missing helper assertion should be inserted to fix the program as json.
-Format: 
-- [3] → one assertion after line 3
-- [3, 4] → assertions after lines 3 and 4
-Constraints:
-- Only insert assertions inside the method body, i.e., between the opening { and closing }.
-- Do not insert assertions in:
- - function/predicate/method signatures
- - preconditions (requires)
- - postconditions (ensures)
- - loop invariants
-- Your answer must be in JSON list format: e.g., [3] or [3, 4].
-- Return no more than 2 lines.
-Example:
-0: method name(args)
-1:   specification
-2: {
-3:   ...
-4: }
-→ All valid outputs: [2], [3], [2,3] (4 is outside the method)
--> If answer back [2] the new method would be
-0: method name(args)
-1:   specification
-2: {
-3:   /*<Assertion is Missing Here>*/ (added line)
-4:   ...
-5: }
-Now, decide the best line(s) do not add any commentary, give only but only the required answer in json format:
-You must send at least one number in the answer!
-Only give at most two lines in the answer (one or two options are the only admissible candidates)!
-"""
-
-SYSTEM_PROMPT = """You are a dafny developer code expert"""
-
-LOCALIZATION_BASE_PROMPT_WITHOUT_RESTRICTION = """
-You are given a Dafny method with line numbers. 
-Your task: return 1 or 2 or more line numbers after which a missing helper assertion should be inserted to fix the program as json.
-Format: 
-- [3] → one assertion after line 3
-- [3, 4] → assertions after lines 3 and 4
-Constraints:
-- Only insert assertions inside the method body, i.e., between the opening { and closing }.
-- Do not insert assertions in:
- - function/predicate/method signatures
- - preconditions (requires)
- - postconditions (ensures)
- - loop invariants
-- Your answer must be in JSON list format: e.g., [3] or [3, 4].
-Example:
-0: method name(args)
-1:   specification
-2: {
-3:   ...
-4: }
-→ All valid outputs: [2], [3], [2,3] (4 is outside the method)
--> If answer back [2] the new method would be
-0: method name(args)
-1:   specification
-2: {
-3:   /*<Assertion is Missing Here>*/ (added line)
-4:   ...
-5: }
-Now, decide the best line(s) do not add any commentary, give only but only the required answer in json format:
-You must send at least one number in the answer!
-You can answer with more than two position as well like [2,3,4].
-"""

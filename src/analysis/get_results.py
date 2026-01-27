@@ -8,6 +8,11 @@ import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator
 import pandas as pd
 
+from statsmodels.stats.contingency_tables import mcnemar
+from scipy.stats import chi2_contingency
+import numpy as np
+from sklearn.metrics import cohen_kappa_score
+
 green = "#117733"
 yellow = "#DDCC77"
 red = "#8A1414"
@@ -18,6 +23,151 @@ red_darker = "#450a0a"
 
 title_prefix = ""
 
+def from_original_dataset_return_verif_stats(df: pd.DataFrame, desired_order) -> (pd.DataFrame, pd.DataFrame):
+    df = df.assign(
+        success=lambda d: d['verif_sucess'] > 0
+    )
+
+    # Success per problem per benchmark
+    df_pairs = (
+        df.groupby(['llm', 'prog', 'group', 'benchmark'])['success']
+          .any()
+          .reset_index()
+    )
+
+    # --- AGG TOTAL (for the Bar Chart) ---
+    # We find the global max number of tests to ensure 'fail' 
+    # accounts for unsupported tests too.
+    total_possible_cases = df_pairs.groupby('llm')['success'].count().max()
+
+    agg_total = (
+        df_pairs.groupby(['llm'])['success']
+        .agg(
+            success='sum',
+            # Fail = (Total Possible) - (Successes)
+            fail=lambda x: total_possible_cases - x.sum()
+        )
+        .reset_index()
+    )
+
+    # --- AGG BENCHMARK (for the LaTeX Table) ---
+    agg_benchmark = (
+        df_pairs.groupby(['llm', 'benchmark'])['success']
+        .agg(['sum', 'count'])
+        .unstack(fill_value=0)
+    )
+    # Flatten columns: ('sum', 'w/o-1') -> 'w/o-1_sum'
+    agg_benchmark.columns = [f"{col[1]}_{col[0]}" for col in agg_benchmark.columns]
+    agg_benchmark = agg_benchmark.reset_index()
+
+    if desired_order:
+        existing = set(agg_total['llm'])
+        missing = [x for x in desired_order if x not in existing]
+        if missing:
+            print(f"Warning: Missing from data: {missing}")
+        agg_total = agg_total.set_index('llm').reindex(desired_order).reset_index()
+        agg_benchmark = agg_benchmark.set_index('llm').reindex(desired_order).reset_index()
+        agg_total['llm'] = agg_total['llm'].map(desired_order)
+        agg_benchmark['llm'] = agg_benchmark['llm'].map(desired_order)
+
+    return (agg_total, agg_benchmark)
+
+def digit_len(x: int) -> int:
+    return len(str(x))
+
+
+def phantom_pad(value: int | float, max_digits: int) -> str:
+    s = str(int(value))
+    pad = max_digits - len(s)
+    return f"{'\\phantom{' + '0' * pad + '}' if pad > 0 else ''}{s}"
+
+def get_latex_table_with_verif_stats(df_verif_stats: pd.DataFrame, caption: str, label : str, desired_order) -> str:
+    (_, agg_pairs_benchmarks) = from_original_dataset_return_verif_stats(df_verif_stats, desired_order)
+
+    
+    # 1. Identify which benchmarks we have (looking for the '_sum' suffix)
+    # This automatically finds ['w/o-1', 'w/o-2', 'w/o-all'] etc.
+    benchmarks = [c.replace('_sum', '') for c in agg_pairs_benchmarks.columns if c.endswith('_sum')]
+    
+    # 2. Calculate the "Global Total" for each benchmark (the max count across all LLMs)
+    global_totals = {}
+    for bench in benchmarks:
+        count_col = f"{bench}_count"
+        if count_col in agg_pairs_benchmarks.columns:
+            global_totals[bench] = int(agg_pairs_benchmarks[count_col].max())
+        else:
+            global_totals[bench] = 0
+
+    # 3. Create the Header with the totals
+    # We'll use get() to safely handle if a benchmark is missing from the data
+    t1 = global_totals.get('w/o-1', 0)
+    t2 = global_totals.get('w/o-2', 0)
+    ta = global_totals.get('w/o-all', 0)
+    combined_total = t1 + t2 + ta 
+    table_top = f"""
+\\begin{{table}}[!t]
+\\begin{{center}}
+\\small
+\\caption{{{caption}}}
+\\label{{{label}}}
+\\begin{{tabular}}{{|l|c|c|c|c|}}
+\\hline
+\\multirow{{2}}{{*}}{{Approach}} & \\multicolumn{{4}}{{c|}}{{Benchmarks}} \\\\
+\\cline{{2-5}}
+ & w/o-1 ({t1}) & w/o-2 ({t2}) & All ({ta}) & Combined ({combined_total}) \\\\
+\\hline
+"""
+    # 4. Generate the Rows
+    rows = []
+    max_sum_digits = 0
+    max_pct_digits = 0
+    for _, r in agg_pairs_benchmarks.iterrows():
+        for bench in ["w/o-1", "w/o-2", "w/o-all"]:
+           s = int(r.get(f'{bench}_sum', 0))
+           total = global_totals.get(bench, 0)
+           pct = (s / total * 100) if total > 0 else 0
+
+           max_sum_digits = max(max_sum_digits, digit_len(s))
+           max_pct_digits = max(max_pct_digits, digit_len(int(pct)))
+
+    for _, r in agg_pairs_benchmarks.iterrows():
+        def get_total_and_percentage_and_str(bench_name, max_sum_digits, max_pct_digits):
+                s = int(r.get(f'{bench_name}_sum', 0))
+                total = global_totals.get(bench_name, 0)
+                pct = (s / total * 100) if total > 0 else 0
+
+                s_fmt = phantom_pad(s, max_sum_digits)
+                pct_fmt = phantom_pad(int(pct), max_pct_digits)
+                return s, pct, f"{s_fmt} ({pct_fmt}.0\\%)"
+
+          
+        nw1, _ , fw1 = get_total_and_percentage_and_str("w/o-1", max_sum_digits, max_pct_digits)
+        nw2, _ , fw2 = get_total_and_percentage_and_str("w/o-2", max_sum_digits, max_pct_digits)
+        nwall, _ , fwall = get_total_and_percentage_and_str("w/o-all", max_sum_digits, max_pct_digits)
+
+
+        combined = (nw1 + nw2 + nwall)
+        combined_pct = (( combined / combined_total) * 100) if combined_total > 0 else 0
+        combined_f = f"{combined} ({combined_pct:.1f}\\%)"
+        
+        row_str = (
+            f"{r["llm"]} & " 
+            f"{fw1} & "
+            f"{fw2} & "
+            f"{fwall} & "
+            f"{combined_f} \\\\"
+        )
+        rows.append(row_str)
+
+    table_bottom = """
+\\hline
+\\end{tabular}
+\\end{center}
+\\end{table}
+"""
+    return table_top + "\n".join(rows) + table_bottom
+
+
 def bar_chart_program_method_success_df(df: pd.DataFrame, size = "BIG", desired_order=None):
     """
     Creates a stacked bar chart per LLM showing:
@@ -25,39 +175,11 @@ def bar_chart_program_method_success_df(df: pd.DataFrame, size = "BIG", desired_
     - failed pairs (had something to verify but never succeeded)
     - verification_to_do (no verification existed to perform)
     """
-    df = df.assign(
-        success=lambda d: d['verif_sucess'] > 0,
-        verif_done=lambda d: d['verif_exist'] > 0
-    )
-    df_pairs = (
-        df.groupby(['llm', 'prog', 'group'])['success']
-          .any()
-          .reset_index()
-    )
-
-    summary = []
-    for llm, group in df_pairs.groupby('llm'):
-        success_count = group['success'].sum()
-        fail_count = ((~group['success'])).sum()
-        summary.append({
-            'llm': llm,
-            'success': success_count,
-            'fail': fail_count,
-        })
-    agg_pairs = pd.DataFrame(summary)
-    if desired_order:
-        existing = set(agg_pairs['llm'])
-        missing = [x for x in desired_order if x not in existing]
-        if missing:
-            print(f"Warning: Missing from data: {missing}")
-        agg_pairs = agg_pairs.set_index('llm').reindex(desired_order).reset_index()
-   
+    (agg_pairs, agg_pairs_benchmarks) = from_original_dataset_return_verif_stats(df, desired_order)
+  
     labels = agg_pairs['llm'].tolist()
     success = agg_pairs['success'].tolist()
     fail = agg_pairs['fail'].tolist()
-
-    print(labels)
-    print(success)
 
     x = range(len(labels))
 
@@ -73,7 +195,6 @@ def bar_chart_program_method_success_df(df: pd.DataFrame, size = "BIG", desired_
 
     for i, (s, f) in enumerate(zip(success, fail)):
         total = s + f 
-        print(total)
         ax.text(i, total + 0.8, f"{total}", ha='center')
 
     for i, (s, f) in enumerate(zip(success, fail)):
@@ -241,7 +362,7 @@ def bar_chart_fix_position_analysis_df(df: pd.DataFrame, size="BIG", desired_ord
     if(size == "SINGLE"):
         fig, ax = plt.subplots(figsize=(5, 3), dpi=300)
     elif(size == "DOUBLE"):
-        fig, ax = plt.subplots(figsize=(7, 4), dpi=300)
+        fig, ax = plt.subplots(figsize=(5, 3), dpi=300)
     elif(size == "BIG"):
         fig, ax = plt.subplots(figsize=(14, 7))
 
@@ -269,7 +390,7 @@ def bar_chart_fix_position_analysis_df(df: pd.DataFrame, size="BIG", desired_ord
     ax.set_ylabel('Testcases')
     ax.yaxis.set_major_locator(MaxNLocator(integer=True))
     ax.set_xticks(x)
-    ax.set_xticklabels(labels, rotation=10, ha='center')
+    ax.set_xticklabels(labels, rotation=15, ha='center')
     ax.legend(loc='upper left', bbox_to_anchor=(1.01,1))
     plt.tight_layout()
     plt.savefig(localization , dpi=300, bbox_inches="tight")
@@ -354,7 +475,7 @@ def bar_chart_dual_success_fix(df: pd.DataFrame,
     if(size == "SINGLE"):
         fig, ax = plt.subplots(figsize=(5, 3), dpi=300)
     elif size=='DOUBLE':
-        fig, ax = plt.subplots(figsize=(7,4), dpi=300)
+        fig, ax = plt.subplots(figsize=(5, 3), dpi=300)
     else:
         fig, ax = plt.subplots(figsize=(14,7))
 
@@ -411,7 +532,7 @@ def bar_chart_dual_success_fix(df: pd.DataFrame,
         loc='lower left', bbox_to_anchor=(1.01,0))
 
     ax.set_xticks(x)
-    ax.set_xticklabels(llms, rotation=10, ha='center')
+    ax.set_xticklabels(llms, rotation=15, ha='center')
     ax.set_ylabel('Testcases')
     ax.yaxis.set_major_locator(MaxNLocator(integer=True))
     plt.tight_layout()
@@ -443,190 +564,101 @@ def sucess_vs_position_cleaned(verif_data_pd, size, llms_to_plot, localization):
     new_verif_data_pd["llm"] = new_verif_data_pd["llm"].apply(lambda x: llms_to_plot[x])
     bar_chart_dual_success_fix(new_verif_data_pd, size, desired_order=list(llms_to_plot.values()), localization=localization)
 
-if __name__ == '__main__':
-    RESULT_DIR = gl.LLM_RESULTS_DIR
-    #RESULT_DIR = gl.BASE_PATH / "dafny_llm_results_dataset_multi_generate_1_or_2"
-    DATASET_DIR = gl.DAFNY_ASSERTION_DATASET
-    #DATASET_DIR = gl.BASE_PATH / "dafny_assertion_dataset_multi_generate_1_or_2"
-    verif_data_pd = get_pandas_dataset(DATASET_DIR, RESULT_DIR)
 
-    # Uncomment to get results for a given number of assertions
+def compute_stats_tests(LLM1, LLM2, stats_df_pairs, threshold = 0.05):
+    # 1. Filter df_pairs to include only the two LLMs you are comparing
+    df_filtered = stats_df_pairs[stats_df_pairs['llm'].isin([LLM1, LLM2])]
 
-    #verif_data_pd = verif_data_pd[verif_data_pd['llm'].str.contains("stub", na=False)]
-    verif_data_pd = verif_data_pd[
-      (verif_data_pd['benchmark'] != "w/o-2 one w/o-1") 
-    ]
-    col = list(verif_data_pd.columns)
-    #verif_data_pd = filter_df(verif_data_pd, name_contains=["stub", "without"])
-    #verif_data_pd = verif_data_pd[verif_data_pd["llm"] ==  "gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_addError_1_addExamp_3_alpha_0.5_ExType_DYNAMIC_loc_LLM_EXAMPLE"]
-    #verif_data_pd = verif_data_pd[verif_data_pd["llm"] ==  "gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_addError_1_addExamp_0_ExType_NONE_loc_LLM"]
-    #verif_data_pd = verif_data_pd[verif_data_pd["llm"] ==  "gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_addError_1_addExamp_3_alpha_0.5_ExType_DYNAMIC_loc_ORACLE"]
-    #verif_data_pd = verif_data_pd[verif_data_pd["llm"] ==  "gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_addError_1_addExamp_3_alpha_0.5_ExType_DYNAMIC_loc_LAUREL_BETTER"]
-    #verif_data_pd = verif_data_pd[verif_data_pd["assertion_type"].apply(len) == 0]
-    #verif_data_pd = verif_data_pd[
-    #  (verif_data_pd['number_expected_assertions'] == 1) &
-    #  (verif_data_pd['number_oracle_assertions'] == 1)
-    #]
+    df_comparison = df_filtered.pivot_table(
+        index=['prog', 'group'],
+        columns='llm',
+        values='success',
+        # Since 'success' is already aggregated as 'any' in df_pairs, 'first' is safe here.
+        aggfunc=any
+    ).reset_index()
 
-    verif_data_pd = verif_data_pd[
-      (verif_data_pd['number_oracle_assertions'] == 1)
-    ]
+    # 4. Select only the final required columns
+    df_final = df_comparison[['prog', 'group', LLM1, LLM2]]
 
-    verif_data_pd  = verif_data_pd.assign(success=lambda d: d['verif_sucess'] > 0) 
-    
-    df_pairs =  verif_data_pd.groupby(
-        ['llm','prog','group'],
-        as_index=False
-    ).agg(
-        assertion_type=('assertion_type', lambda x: str(x.iloc[0])),
-        oracle_here_would_fix=('oracle_here_would_fix', lambda x: any(x)),
-        assertion_here_syntatic_valid=('assertion_here_syntatic_valid', lambda x: any(x)),
-        number_expected_assertions=('number_expected_assertions', lambda x: x.iloc[0]),
-        number_oracle_assertions=('number_oracle_assertions', lambda x: x.iloc[0]),
-        success=('success','any')
-    )
-
-    #print(df_pairs)
-    counts = df_pairs.groupby(["llm", "assertion_type", 'success']).size().reset_index(name='count')
-    print("Counts per assertion type:")
-    print(counts)
-
-    counts = df_pairs.groupby(["llm", "number_oracle_assertions", 'number_expected_assertions','success' ]).size().reset_index(name='count')
-    print(counts)
-    # LLM example  0.5                                             llm      assertion_type  success  count
-#0   gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_...  ['INDEX', 'INDEX']     True      3
-#1   gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_...  ['INDEX', 'OTHER']     True      3
-#2   gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_...           ['INDEX']    False     31
-#3   gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_...           ['INDEX']     True     37
-#4   gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_...  ['MULTI', 'OTHER']     True      1
-#5   gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_...           ['MULTI']    False      8
-#6   gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_...           ['MULTI']     True      3
-#7   gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_...  ['OTHER', 'INDEX']     True      3
-#8   gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_...  ['OTHER', 'MULTI']    False      4
-#9   gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_...  ['OTHER', 'OTHER']    False      4
-#10  gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_...  ['OTHER', 'OTHER']     True     25
-#11  gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_...           ['OTHER']    False     67
-#12  gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_...           ['OTHER']     True     59
-#13  gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_...            ['TEST']    False     10
-#14  gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_...            ['TEST']     True     23
-#15  gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_...                  []    False     23
-#16  gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_...                  []     True      7
-                    
-    # ORACLE 0.5                                                llm      assertion_type  success  count
-#0   gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_...  ['INDEX', 'INDEX']    False      1
-#1   gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_...  ['INDEX', 'INDEX']     True      2
-#2   gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_...  ['INDEX', 'OTHER']     True      3
-#3   gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_...           ['INDEX']    False     17
-#4   gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_...           ['INDEX']     True     51
-#5   gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_...  ['MULTI', 'OTHER']    False      1
-#6   gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_...           ['MULTI']    False     10
-#7   gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_...           ['MULTI']     True      1
-#8   gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_...  ['OTHER', 'INDEX']    False      2
-#9   gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_...  ['OTHER', 'INDEX']     True      1
-#10  gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_...  ['OTHER', 'MULTI']    False      1
-#11  gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_...  ['OTHER', 'MULTI']     True      3
-#12  gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_...  ['OTHER', 'OTHER']    False      5
-#13  gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_...  ['OTHER', 'OTHER']     True     24
-#14  gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_...           ['OTHER']    False     48
-#15  gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_...           ['OTHER']     True     78
-#16  gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_...            ['TEST']    False      5
-#17  gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_...            ['TEST']     True     28
-#18  gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_...                  []    False     20
-#19  gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_...                  []     True     10  
-   
-# gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_addError_1_addExamp_3_alpha_0.5_ExType_DYNAMIC_loc_LAUREL_BETTER 
-# STATIC 0.5                                                 llm      assertion_type  success  count
-#0   gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_...  ['INDEX', 'INDEX']    False      1
-#1   gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_...  ['INDEX', 'INDEX']     True      2
-#2   gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_...  ['INDEX', 'OTHER']    False      1
-#3   gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_...  ['INDEX', 'OTHER']     True      2
-#4   gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_...           ['INDEX']    False     28
-#5   gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_...           ['INDEX']     True     40
-#6   gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_...  ['MULTI', 'OTHER']     True      1
-#7   gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_...           ['MULTI']    False      9
-#8   gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_...           ['MULTI']     True      2
-#9   gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_...  ['OTHER', 'INDEX']     True      3
-#10  gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_...  ['OTHER', 'MULTI']    False      3
-#11  gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_...  ['OTHER', 'MULTI']     True      1
-#12  gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_...  ['OTHER', 'OTHER']    False      7
-#13  gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_...  ['OTHER', 'OTHER']     True     22
-#14  gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_...           ['OTHER']    False     66
-#15  gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_...           ['OTHER']     True     60
-#16  gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_...            ['TEST']    False     12
-#17  gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_...            ['TEST']     True     21
-#18  gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_...                  []    False     24
-#19  gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_...                  []     True      6
-
-    for op in ["1_assertion_", "2_assertion_", "more_than_2_", "all_assertion_"]:
-      if(op == "1_assertion_"):
-        plot_data_pd = verif_data_pd[
-         (verif_data_pd['number_oracle_assertions'] == 1) 
-         ]
-      elif(op == "2_assertion_"):
-        plot_data_pd = verif_data_pd[
-         (verif_data_pd['number_oracle_assertions'] == 2) 
-         ]
-      elif(op == "more_than_2_"):
-        plot_data_pd = verif_data_pd[
-         (verif_data_pd['number_oracle_assertions'] > 2) 
-         ]
-      else:
-        plot_data_pd = verif_data_pd
-
-      op = "images/" + op
-      llms_to_plot={ 
-                 "gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_addError_1_addExamp_0_ExType_NONE_loc_LLM_EXAMPLE" : "LLM_EX_NO_RAG",
-                 "gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_addError_1_addExamp_3_alpha_0.5_ExType_DYNAMIC_loc_LAUREL_BETTER" : "STATIC_RAG",
-                 "gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_addError_1_addExamp_3_alpha_0.5_ExType_DYNAMIC_loc_LLM_EXAMPLE" : "LLM_EX_RAG", 
-                 "gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_addError_1_addExamp_3_alpha_0.5_ExType_DYNAMIC_loc_ORACLE" : "ORACLE_RAG" ,                         
-                  }
-    
-
-        
-      title_prefix = op + "_best_overall_"
-      print(title_prefix)
-      bar_chart_cleaned(plot_data_pd,"DOUBLE",   llms_to_plot)
-      line_plot_expected_kpass_df_cleaned(plot_data_pd,"DOUBLE",   llms_to_plot)
-      bar_chart_fix_position_cleaned(plot_data_pd,"DOUBLE",   llms_to_plot)
-      sucess_vs_position_cleaned(plot_data_pd,"DOUBLE",   llms_to_plot)
+    # 3. Extract and Reorder the counts into the standard McNemar Matrix format
+    # The standard matrix for mcnemar is:
+    #             LLM2 Fail | LLM2 Success
+    # LLM1 Fail | d         | c
+    # LLM1 Succ | b         | a
 
 
-   
-      llms_to_plot={
-                  "gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_addError_1_addExamp_3_ExType_RANDOM_loc_ORACLE" : "random",
-                  "gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_addError_1_addExamp_0_ExType_NONE_loc_ORACLE" : "no example",
-                  "gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_addError_1_addExamp_3_alpha_0.25_ExType_DYNAMIC_loc_ORACLE" : "alpha_0.25",
-                  "gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_addError_1_addExamp_3_alpha_1_ExType_DYNAMIC_loc_ORACLE" : "alpha_1",
-                  "gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_addError_1_addExamp_3_alpha_0.75_ExType_DYNAMIC_loc_ORACLE" : "alpha_0.75",
-                  "gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_addError_1_addExamp_3_ExType_TFIDF_loc_ORACLE"   : "tfidf",  
-                  "gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_addError_1_addExamp_3_alpha_0.5_ExType_DYNAMIC_loc_ORACLE" : "alpha_0.50" ,   
-                  "gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_addError_1_addExamp_3_ExType_EMBEDDED_loc_ORACLE" : "EMBEDDED"
-                                                                  
-                  }
-    
-      title_prefix = op + "_evaluating_examples_retrieval_with_fixed_oracle_position_"
-      print(title_prefix)
-      bar_chart_cleaned(plot_data_pd,"DOUBLE",   llms_to_plot)
-      line_plot_expected_kpass_df_cleaned(plot_data_pd,"DOUBLE",   llms_to_plot)
-      bar_chart_fix_position_cleaned(plot_data_pd,"DOUBLE",   llms_to_plot)
-      sucess_vs_position_cleaned(plot_data_pd,"DOUBLE",   llms_to_plot)
+    #The McNemar's test specifically checks if the marginal frequencies (b and c) are significantly different, i.e., if b != c.
+    # Count the cases where LLM1 succeed:wed and LLM2 failed (value 'b')
+    a = df_final[(df_final[LLM1] == True) & (df_final[LLM2] == True)].shape[0]
+    b = df_final[(df_final[LLM1] == True) & (df_final[LLM2] == False)].shape[0]
+    c = df_final[(df_final[LLM1] == False) & (df_final[LLM2] == True)].shape[0]
+    d = df_final[(df_final[LLM1] == False) & (df_final[LLM2] == False)].shape[0]
 
-      llms_to_plot={ 
-                 "gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_addError_1_addExamp_0_ExType_NONE_loc_LAUREL" : "Laurel$_{fl}$",
-                 "gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_addError_1_addExamp_0_ExType_NONE_loc_LLM" : "Llm$_{fl}$", 
-                 "gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_addError_1_addExamp_0_ExType_NONE_loc_LAUREL_BETTER" : "Laurel$_{fl+}$",
-                 "gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_addError_1_addExamp_0_ExType_NONE_loc_LLM_EXAMPLE" : "LlmEx$_{fl}$",
-                 "gpt_4.1__nAssertions_ALL_nRounds_1_nRetries_1_addError_1_addExamp_0_ExType_NONE_loc_ORACLE" : "GrTru$_{fl}$",               
-                  }
-    
-      title_prefix = op + "_evaluating_position_inference_without_examples_"
-      print(title_prefix)
-      bar_chart_cleaned(plot_data_pd,"DOUBLE",   llms_to_plot)
-      line_plot_expected_kpass_df_cleaned(plot_data_pd,"DOUBLE",   llms_to_plot)
-      bar_chart_fix_position_cleaned(plot_data_pd,"SINGLE",   llms_to_plot)
-      sucess_vs_position_cleaned(plot_data_pd,"SINGLE",   llms_to_plot)
-      
+    mcnemar_matrix = [[d, c], [b, a]]
+    print(f"\n--- McNemar Matrix [[d,c],[b,a]]: ---\n{mcnemar_matrix}")
+
+    result = mcnemar(mcnemar_matrix, exact=True)
+    print(f"\n--- Results McNemar (is one better than the other) ---")
+    print(result)
+    # Example of how to print the key results:
+    print(f"Agreements (d): {LLM1} Failures, {LLM2} Failure: {d}")
+    print(f"Agreements (a): {LLM1} Success, {LLM2} Success: {a}")
+    print(f"Disagreements (b): {LLM1} Success, {LLM2} Failure: {b}")
+    print(f"Disagreements (c): {LLM1} Failure, {LLM2} Success: {c}")
+    pval = result.pvalue
+    print(f"P-Value: {pval}")
+    if(pval < threshold):
+        print("!!! Models are statistically different (one is better than the other) !!!")
+    else:
+        print("!!! Models are not statistically different (they are equal in efficacy) !!!")
+
+
+    #Chi-Squared Test of IndependenceThe 5$\chi^2$ test assesses whether the observed frequencies in your 6$2\times2$ confusion matrix are significantly different 
+    #from the frequencies that would be expected if the two models were statistically independent.7
+
+    print(f"\n--- Results Chi-squared Test of Independence are they independent ---")
+    # Null Hypothesis ($H_0$): The two models' outcomes ($M_1$ success/fail and $M_2$ success/fail) are independent (orthogonal).
+    # Alternative Hypothesis (8$H_A$): The two models' outcomes are not independent (there is a significant association/overlap).9
+    # The contingency matrix for the Chi-Squared test usually uses the success/failure counts
+    # organized by the standard matrix:
+    #             LLM2 Fail | LLM2 Success
+    # LLM1 Fail | d         | c
+    # LLM1 Succ | b         | a
+    chi2_matrix = [[d, c], [b, a]]
+
+    print(f"--- Chi-Squared Matrix [[d,c],[b,a]]: ---\n{chi2_matrix}")
+
+    # Apply the Chi-Squared Test of Independence
+    chi2, p_value, dof, expected = chi2_contingency(chi2_matrix, correction=True)
+
+    print("--- Chi-Squared Test Results ---")
+    print(f"Chi-Squared Statistic: {chi2:.4f}")
+    print(f"P-Value: {p_value:.4f}")
+    print(f"Degrees of Freedom: {dof}")
+
+    # The 'expected' array shows what the counts would be if the models were perfectly independent
+    print("Expected Frequencies (if independent):")
+    print(expected.round(2))
+    if(p_value < threshold):
+        print("!!! Models are not independent !!!")
+    else:
+        print("!!! Models are independent!!! ")
 
 
 
+    print("Effect Sizes")
+    N = d + c + b + a  # Total number of programs = 241
+    # --- 1. Phi (φ) Coefficient (Effect Size for Chi-Squared) ---
+    # Formula: phi = sqrt(chi2 / N)
+    # First, recalculate chi2 from the matrix to ensure accuracy
+    chi2_matrix = [[d, c], [b, a]]
+    chi2, p, dof, expected = chi2_contingency(chi2_matrix)
+    phi = np.sqrt(chi2 / N)
 
+    print(f"Phi (φ) Coefficient: {phi:.3f}")
+    # Output: Phi (φ) Coefficient: 0.518 (Matches your value)
+    # --- 2. Jaccard Index (Practical Overlap) ---
+    # Formula: a / (a + b + c)
+    jaccard = a / (a + b + c)
+    print(f"Jaccard Index (Overlap): {jaccard:.3f}")
+    # Output: Jaccard Index (Overlap): 0.627

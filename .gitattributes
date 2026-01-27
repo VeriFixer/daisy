@@ -1,2 +1,8 @@
-dataset/latest.tar.gz filter=lfs diff=lfs merge=lfs -text
-results/latest.tar.gz filter=lfs diff=lfs merge=lfs -text
+dataset/dafny_assertion_dataset_test.tar.gz filter=lfs diff=lfs merge=lfs -text
+dataset/dafny_assertion_dataset.tar.gz filter=lfs diff=lfs merge=lfs -text
+
+results/dafny_llm_results_pre_test__testing_different_models.tar.gz filter=lfs diff=lfs merge=lfs -text
+results/dafny_llm_results_rq4__different_llms.tar.gz filter=lfs diff=lfs merge=lfs -text
+results/dafny_llm_results_rq3__example_gatherer.tar.gz filter=lfs diff=lfs merge=lfs -text
+results/dafny_llm_results_rq2__loc_strategy.tar.gz filter=lfs diff=lfs merge=lfs -text
+results/dafny_llm_results_rq1__best_overall.tar.gz filter=lfs diff=lfs merge=lfs -text

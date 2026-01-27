@@ -3,58 +3,16 @@ import dafny.dafny_runner as dafny_runner
 import utils.dafny_read_assertions_xml as dafny_read_assertions_xml
 
 import itertools
-
-def process_assertions_per_level_old(assertions_ids, helper_assertions_of_all_levels, nothelper_assertions_previous_level, number_to_remove):
-    if(number_to_remove == -1):
-        helper_assertion_to_test = [{i for i in assertions_ids}]
-        return  helper_assertion_to_test
- 
-    # old implementation had restriction on assertions pairs (only paired if w/o-2 if did not had any)
-    possibilites_for_next_level = []
-    if(number_to_remove == 1):
-        helper_assertion_to_test = [{i} for i in assertions_ids]
-        return  helper_assertion_to_test
-
-    for i in assertions_ids:
-        for prev_level_assertion_set in nothelper_assertions_previous_level:
-          # if assertion already on the set not needed to test
-          if(i in prev_level_assertion_set):
-              continue
-          possibility = set(list(prev_level_assertion_set) + [i])
-          # If already added that det not repeated
-          if(possibility in possibilites_for_next_level):
-              continue
-          is_a_possibility = 1
-          # Code responsible to stop assertions already identified as Helper to make pairs with others 
-          # By removing this i believe the number of cases will explode lets run
-          for helper_assertion_prev_level in  helper_assertions_of_all_levels:
-              for helper_prev_sequences in helper_assertion_prev_level:
-                  if(helper_prev_sequences.issubset(possibility)):
-                      is_a_possibility = 0
-                      break 
-              if(is_a_possibility == 0):
-                  break 
-          if(is_a_possibility):
-                 possibilites_for_next_level.append(possibility)
-    return possibilites_for_next_level
-
-
-def process_assertions_per_level(assertions_ids, number_to_remove):
-    if(number_to_remove == -1):
-        helper_assertion_to_test = [{i for i in assertions_ids}]
-        return  helper_assertion_to_test
-
-    helper_assertion_to_test = [set(c) for c in itertools.combinations(assertions_ids, number_to_remove)]
-    return helper_assertion_to_test
-
+from utils.assertion_method_classes import AssertionInfo, MethodInfo
 import xml.etree.ElementTree as ET
 import xml.dom.minidom as minidom
+from pathlib import Path
 
-def create_assertion_xml(number_to_remove, assertions_to_remove, method_info, output_path, group_id):
+def create_assertion_xml(number_to_remove: int, assertions_to_remove : list[AssertionInfo], method_info : MethodInfo, output_path : Path, group_id : int):
     root = ET.Element("method")
-    ET.SubElement(root, "name").text = method_info["name"]
-    ET.SubElement(root, "start_pos").text = str(method_info["start_pos"])
-    ET.SubElement(root, "end_pos").text = str(method_info["end_pos"])
+    ET.SubElement(root, "name").text = method_info.method_name
+    ET.SubElement(root, "start_pos").text = str(method_info.start_pos)
+    ET.SubElement(root, "end_pos").text = str(method_info.end_pos)
 
     assertion_group = ET.SubElement(root, "assertion_group")
     ET.SubElement(assertion_group, "id").text = str(group_id)
@@ -62,9 +20,9 @@ def create_assertion_xml(number_to_remove, assertions_to_remove, method_info, ou
 
     for assertion in assertions_to_remove:
         assertion_elem = ET.SubElement(assertion_group, "assertion")
-        ET.SubElement(assertion_elem, "type").text = assertion["type"]
-        ET.SubElement(assertion_elem, "start_pos").text = str(assertion["start_pos"])
-        ET.SubElement(assertion_elem, "end_pos").text = str(assertion["end_pos"])
+        ET.SubElement(assertion_elem, "type").text = assertion.type
+        ET.SubElement(assertion_elem, "start_pos").text = str(assertion.start_pos)
+        ET.SubElement(assertion_elem, "end_pos").text = str(assertion.end_pos)
 
     # Convert the tree to a string
     rough_string = ET.tostring(root, encoding="utf-8")
@@ -77,105 +35,102 @@ def create_assertion_xml(number_to_remove, assertions_to_remove, method_info, ou
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(pretty_xml)
 
+from pathlib import Path
+from utils.assertion_method_classes import MethodInfo, AssertionInfo, assertionGroup
 # max_assertions_to_remove == -1 remove all
-def process_assertions_method( dafny_exec, program_dst_folder,  program_path, method_info, assertion_infos, temp_dir, max_assertions_to_remove):
-    dataset_list = []
-    if(max_assertions_to_remove == -1):
-        number_to_remove = -1
-    else:
-        number_to_remove = 1
-    assertion_ids = [i for i in range(len(assertion_infos))]
-    method_name = method_info["name"]
-    helper_assertions_of_all_levels = []
-    nothelper_assertions_previous_level = []
-    n_assertions = len(assertion_ids)
 
-    group_id = 0
-    while(1):
-        if(number_to_remove != -1 and number_to_remove > max_assertions_to_remove):
-            break
-        assertions_sets_to_test = process_assertions_per_level(assertion_ids, number_to_remove)
-        print("Method: " + method_name + "number: " + str(number_to_remove) + "assertion_to_test:" + str(assertions_sets_to_test))
-        new_level_helper = []
-        prev_level_not_helper = []
+def write_file(path: Path, content: str) -> None:
+    """Write content to a file, creating parent directories if needed."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content)
+
+
+def process_assertions_per_level(assertions_ids : list[int], number_to_remove : int):
+    if(number_to_remove == -1):
+        helper_assertion_to_test = [{i for i in assertions_ids}]
+        return  helper_assertion_to_test
+
+    helper_assertion_to_test = [set(c) for c in itertools.combinations(assertions_ids, number_to_remove)]
+    return helper_assertion_to_test
+
+# -1 max assertion to remove means remove all assertion
+# infinity is also possible to be passed (no infinite loop will occur)
+def process_assertions_method( dafny_exec : Path, program_dst_folder : Path,  program_path: Path, 
+                                                         method_info: MethodInfo, max_assertions_to_remove: int) -> None:
+    def process_assertion_set(assertion_infos : list[AssertionInfo], n_assertions_to_remove: int, init_grop_id : int) -> tuple[list[assertionGroup], int]:
+        
+        found_assertion_groups : list[assertionGroup] = []
+        group_id = init_grop_id
+
+        assertion_ids = list(range(len(assertion_infos)))
+        assertions_sets_to_test = process_assertions_per_level(assertion_ids, n_assertions_to_remove)
+        
         for assertion_set in assertions_sets_to_test:
-            assertion_set_list =  list(assertion_set)
-            # If number of assertions is one or two this case is englobated already in the 1 and 2 exaustive search
-            if(len(assertion_set_list) <= 2 and number_to_remove == -1):
-                continue
-
             # Removing from the later to the begginning allows to remove one by one
-            assertions_to_remove = []
-            for assertion_id in assertion_set_list:
-              assertions_to_remove.append(assertion_infos[assertion_id])
+            assertions_to_remove = [assertion_infos[i] for i in assertion_set]
 
-            assert_str = f"method_start_{method_info["start_pos"]}"
-            for assertion in assertions_to_remove:
-                assert_str += f"_as_start_{assertion["start_pos"]}_end_{assertion["end_pos"]}"
-            program_assertion_dst_dir = program_dst_folder / assert_str
+            assertion_dir_suffix = (
+                f"method_start_{method_info.start_pos}"
+                + "".join(f"_as_start_{a.start_pos}_end_{a.end_pos}" for a in assertions_to_remove)
+            )
 
-            status, stdout_msg, _ , new_program_text, method_new_text =  test_new_program(dafny_exec, program_path, assertions_to_remove,method_info , temp_dir, id)
-            #print("-----------------------------------------------")
-            #print(method_new_text)
-            #print("----status msg ------")
-            #print(stdout_msg)
-            #print("-----------------------------------------------")
-            if(status == "NOT_VERIFIED"):
-                new_level_helper.append(assertion_set)
-            elif(status == "VERIFIED"):
-                prev_level_not_helper.append(assertion_set) 
-            else:
-                print("Error")
-                print(status)
+            program_assertion_dst_dir = program_dst_folder / assertion_dir_suffix
+
+            status, stdout_msg, _ , new_program_text, method_new_text =  test_new_program(dafny_exec, program_path, assertions_to_remove)
+            if status not in {dafny_runner.Status.VERIFIED, dafny_runner.Status.NOT_VERIFIED}:
+                print("Error running Dafny:", status)
                 print(stdout_msg)
+
+            if status in {dafny_runner.Status.NOT_VERIFIED}:
+                # Save program files and outputs
+                write_file(program_assertion_dst_dir / "method_without_assertion_group.dfy", method_new_text)
+                write_file(program_assertion_dst_dir / "program_without_assertion_group.dfy", new_program_text)
+                write_file(program_assertion_dst_dir / "verifier_output.txt", stdout_msg)
+
+                # Save XML info
+                create_assertion_xml(
+                    n_assertions_to_remove, assertions_to_remove, method_info,
+                   program_assertion_dst_dir / "info.xml", group_id
+                )
+
+                found_assertion_groups.append(assertions_to_remove)
+                group_id += 1
+           
+            
+        return found_assertion_groups, group_id
     
-            if(status == "Error" or status == "NOT_VERIFIED"):
-              print(f"Creating {program_assertion_dst_dir }")
-              os.makedirs(program_assertion_dst_dir, exist_ok=True) 
+    group_id = 0
 
-              method_without_assertions = program_assertion_dst_dir / "method_without_assertion_group.dfy"
-              with open(method_without_assertions,"w") as f:
-                  f.write(method_new_text)
+    # This comes from reading the all dataset , need to convert it into array
+    assertion_groups_list = method_info.assertion_groups
+    if(len(assertion_groups_list) == 0):
+        return
+    
+    assertion_list = assertion_groups_list[0]
 
-              program_without_assertions = program_assertion_dst_dir / "program_without_assertion_group.dfy"
-              with open(program_without_assertions,"w") as f:
-                  f.write(new_program_text)
-                  
-              verifier_output_file = program_assertion_dst_dir / "verifier_output.txt"
-              with open(verifier_output_file,"w") as f:
-                  f.write(stdout_msg)
+    if(max_assertions_to_remove != -1):
+       helper_lvl_1, group_id = process_assertion_set(assertion_list, 1, 0)
+       # Note all elemnts of lv1_1 have grops have exactly one assertion
+       helper_lvl_1_assertions: list[AssertionInfo] = [x[0] for x in helper_lvl_1]
+       actual_max_assertions = min(max_assertions_to_remove, len(helper_lvl_1_assertions))
+       # Has helper_lvl_1_assertions represent the assertion at most that we can remove (remove all lvl 1 at the same time)
+       for number_to_remove in range(2, actual_max_assertions + 1):
+            _, group_id = process_assertion_set(helper_lvl_1_assertions, number_to_remove, group_id)
 
-              output_path = program_assertion_dst_dir / "info.xml"
-              create_assertion_xml(number_to_remove, assertions_to_remove, method_info, output_path, group_id)
-              group_id += 1
-
-        print("New level helper:" + str(new_level_helper))
-        print("Not helper:" + str(prev_level_not_helper))  
-
-        helper_assertions_of_all_levels.append(new_level_helper)
-        nothelper_assertions_previous_level = prev_level_not_helper
-
-        if(n_assertions <= number_to_remove):
-            break
-
-        if(number_to_remove == -1):
-            break
-
-        number_to_remove += 1
-
-    return dataset_list
+    else:
+       _,_= process_assertion_set(assertion_list, -1, 0)
 
 import os
-def create_temp_directories(base_path, id):
+def create_temp_directories(base_path : Path, id: int)-> tuple[Path, Path]:
     temp_source = os.path.join(base_path, f"src__{id}")
     temp_result = os.path.join(base_path, f"res__{id}")
     os.makedirs(temp_source, exist_ok=True)
     os.makedirs(temp_result, exist_ok=True)
-    return temp_source, temp_result
+    return Path(temp_source), Path(temp_result)
 
 # removes the assertion_set of the program
-def test_new_program(dafny_exec, dafny_file, assertions_info, method_info, temp_dir, id):
-    dafny_new_program_text, method_new_text = dafny_read_assertions_xml.get_file_and_method_without_assertions(dafny_file, assertions_info, method_info, remove_empty_lines = 1)
-    status, stdout_msg, stderr = dafny_runner.run_dafny_from_text (dafny_exec, dafny_new_program_text, temp_dir)
+def test_new_program(dafny_exec : Path, dafny_file : Path, assertions_group : list[AssertionInfo]) -> tuple[dafny_runner.Status,str,str,str,str]:
+    dafny_new_program_text, method_new_text = dafny_read_assertions_xml.get_file_and_method_without_assertion_group(dafny_file, assertions_group, remove_empty_lines = 1)
+    status, stdout_msg, stderr = dafny_runner.run_dafny_from_text (dafny_exec, dafny_new_program_text, tmp=True)
     return status, stdout_msg, stderr, dafny_new_program_text, method_new_text
 
