@@ -25,15 +25,15 @@ class TestRunDafny(unittest.TestCase):
         ret =  run_dafny(self.dafny_exec, self.test_verify_program, self.destination_path_folder, option="verify")
         (program_status, _ , _) = ret 
         print(ret)
-        self.assertEqual(program_status, "VERIFIED")
+        self.assertEqual(program_status, Status.VERIFIED)
     def test_program_not_verifies(self):
         # Text with a single valid assertion
         (program_status, _ , _) =  run_dafny(self.dafny_exec, self.test_not_verified_program, self.destination_path_folder, option="verify")
-        self.assertEqual(program_status, "NOT_VERIFIED")
+        self.assertEqual(program_status, Status.NOT_VERIFIED)
     def test_program_error(self):
         # Text with a single valid assertion
         (program_status, _ , _) =  run_dafny(self.dafny_exec, self.test_error_program, self.destination_path_folder, option="verify")
-        self.assertEqual(program_status, "ERROR")
+        self.assertEqual(program_status, Status.ERROR)
         #test_location = gl.BASE_PATH / "tests" / "assertiveProgramming_Find_substring_should_error.dfy"
         #ret =  run_dafny(gl.DAFNY_EXEC, test_location, gl.TEMP_FOLDER / "dafny_test", option="verify")
         #print(ret) 

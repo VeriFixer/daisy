@@ -79,6 +79,8 @@ def load_entries_from_pickles(dataset_dir: Path):
                  err_emb = pickle.load(f)
             with open(grp_dir / "code_embeds.pkl", "rb") as f:
                 cod_emb = pickle.load(f)
+            with open(grp_dir / "oracle_assertions.json", "r", encoding="utf-8") as f:
+                assertions_data = json.load(f)
 
             entries.append({
                 "prog": prog_dir.name,
@@ -86,11 +88,12 @@ def load_entries_from_pickles(dataset_dir: Path):
                 "error_message": (grp_dir / "verifier_output.txt").read_text(encoding='utf-8'),
                 "code_snippet":  (grp_dir / "method_with_assertion_placeholder.dfy").read_text(encoding='utf-8'),
                 "oracle_pos" : (grp_dir / "oracle_fix_position.txt").read_text(encoding='utf-8'),
-                "assertions": str(json.load(open(grp_dir / "oracle_assertions.json"))),
+                "assertions": str(assertions_data),
                 "method_without_assertion_group" : (grp_dir / "method_without_assertion_group.dfy").read_text(encoding='utf-8'),
                 "error_embeds": err_emb,
                 "code_embeds": cod_emb
             })
+
     with open(dataset_dir / "tfidf_vectorizer.pkl", "rb") as f:
         tfidf_vectorizer = pickle.load(f)
     with open(dataset_dir / "tfidf_matrix.pkl", "rb") as f:

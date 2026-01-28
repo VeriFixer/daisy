@@ -1,4 +1,3 @@
-# Dockerfile - Fully self-contained Ubuntu 22.04 image
 FROM ubuntu:24.04
 
 # ------------------------------------------------------------------------------
@@ -35,22 +34,25 @@ RUN set -eux; \
     echo "Downloading Z3 from $url"; \
     curl -L -o z3-${Z3_VERSION}.zip "$url"; \
     unzip z3-${Z3_VERSION}.zip; \
-    # Determine the extracted folder (likely something like z3-${Z3_VERSION}-x64-glibc-2.39) \
     dir="$(unzip -Z -1 z3-${Z3_VERSION}.zip | head -n1 | cut -d/ -f1)"; \
     echo "Installing Z3 from folder: $dir"; \
     cp -a "$dir"/bin/* /usr/local/bin/; \
     cp -a "$dir"/include/* /usr/local/include/ 2>/dev/null || true; \
     ldconfig; \
-    # If python bindings present, install them
     rm -rf /app/z3-${Z3_VERSION}.zip /app/"$dir"
 
 # ------------------------------------------------------------------------------
 # .NET SDK (required for Dafny / Laurel tooling)
 # ------------------------------------------------------------------------------
+ENV DOTNET_ROOT=/usr/share/dotnet
+ENV PATH="$DOTNET_ROOT:$PATH"
+
+# INSTALL sdk 8 for dafny fork and 6 for laurel and laurel better
 RUN wget https://dot.net/v1/dotnet-install.sh -O /tmp/dotnet-install.sh && \
     chmod +x /tmp/dotnet-install.sh && \
-    /tmp/dotnet-install.sh --channel 8.0 --install-dir /usr/share/dotnet && \
-    ln -s /usr/share/dotnet/dotnet /usr/bin/dotnet && \
+    /tmp/dotnet-install.sh --channel 8.0 --install-dir $DOTNET_ROOT && \
+    /tmp/dotnet-install.sh --channel 6.0 --install-dir $DOTNET_ROOT && \
+    ln -sf $DOTNET_ROOT/dotnet /usr/bin/dotnet && \
     rm /tmp/dotnet-install.sh
 # ------------------------------------------------------------------------------
 # Java (required for Java / Gradle-based tooling)

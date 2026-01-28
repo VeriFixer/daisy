@@ -101,8 +101,8 @@ MODEL_REGISTRY = {
         provider="debug",
         model_id="cost_stub_response_dafnybench",
         max_context=128_000,
-        cost_1M_in=0,
-        cost_1M_out=0
+        cost_1M_in=0.0,
+        cost_1M_out=0.0
 
     ),
 
@@ -110,8 +110,8 @@ MODEL_REGISTRY = {
         provider="debug",
         model_id="cost_stub_almost_real",
         max_context=128_000,
-        cost_1M_in=0,
-        cost_1M_out=0
+        cost_1M_in=0.0,
+        cost_1M_out=0.0
     ),
 
     # Debug Interactive
@@ -119,8 +119,8 @@ MODEL_REGISTRY = {
         provider="debug",
         model_id="without_api",
         max_context=128_000,
-        cost_1M_in=0,
-        cost_1M_out=0
+        cost_1M_in=0.0,
+        cost_1M_out=0.0
     ),
 }
 

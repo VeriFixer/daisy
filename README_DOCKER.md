@@ -14,18 +14,10 @@ Make sure Docker is running before proceeding.
 ---
 
 ## 2. Use a Prebuilt Docker Image
-
 If you have a prebuilt image archive (`dafny_research_latest.tar`), load it with:
 
 ```shell
 docker load -i dafny_research_latest.tar
-``` 
-Run an interactive container (forwarding port 8888):
-```shell
-docker run --rm -it \
-  -p 8888:8888 \
-  -w /app \
-  dafny_research:latest bash
 ``` 
 To save the current image to a file
 ```shell 
@@ -39,9 +31,10 @@ docker build -t dafny_research:latest .
 ```
 
 ## 4. Run an Interactive Container 
-Basic interactive shell
+Run an interactive container (forwarding port 8888 to use jupyter notebook):
 ```shell
 docker run --rm -it \
+  -p 8888:8888 \
   -w /app \
   dafny_research:latest bash
 ```
@@ -66,11 +59,27 @@ docker run --rm -it \
 
 ## 7. Running Jupyter notebooks (To see the daya analyses sections)
 Jupyter is available inside the container.
-After starting the container with port forwarding (-p 8888:8888), run:
+After starting the container with port forwarding (-p 8888:8888), run in the browser:
 ```shell
 jupyter lab --ip=0.0.0.0 --no-browser
 ``` 
-Open the printed URL (or http://localhost:8888) in your browser.
+You will get a line as ouput saying which links to copy to acess the file in the browser:
+For instances (for one run the following output was obtained):
+```txt
+    To access the server, open this file in a browser:
+        file:///home/researcher/.local/share/jupyter/runtime/jpserver-12-open.html
+    Or copy and paste one of these URLs:
+        http://42807fdb1356:8888/lab?token=bc6ea10c52c351112275cf9c05bfd7dd9bfe376bb569554b
+        http://127.0.0.1:8888/lab?token=bc6ea10c52c351112275cf9c05bfd7dd9bfe376bb569554b
+
+```
+
+Copy the final url , in the case above:
+```txt
+       http://127.0.0.1:8888/lab?token=bc6ea10c52c351112275cf9c05bfd7dd9bfe376bb569554b
+``` 
+In your browser on the environment outside docker and you will be have to see all files on the docker solution. Navigate there to the jupyter notebooks
+
 
 ## 8. Insede the container 
 Once inside the container, follow the instructions in the main project documentation (README.md)

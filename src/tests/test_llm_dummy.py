@@ -1,5 +1,5 @@
 from dafny.dafny_runner import *
-from llm.llm_configurations import LLM_COST_STUB_RESPONSE_IS_PROMPT
+from llm.llm_configurations import ModelInfo
 import llm.llm_pipeline as llm_pipeline
 
 import unittest
@@ -15,12 +15,9 @@ from datasets.dafny_dataset_generator import dafny_file_dataset_generator
 import llm.llm_configurations as llm
 
 class LLM_DOUBLE_REPONSE(llm.LLM):  # 'extends' should be 'LLM_STUB(LLM)'
-    def __init__(self,name:str):
-        super().__init__(name)  
-
     def get_response(self, prompt:str):  # Fix indentation
         self.chat_history.append(prompt) # orinal prompt
-        if("Only give at most two lines in the answer" in prompt): #fix position prompt
+        if("Return ONLY the JSON list of line numbers" in prompt): #fix position prompt
           response = json.dumps([10,11])
         else:
           response = json.dumps([[f"assert 123452==123452 && {i} == {i};" for i in range(10)] for _ in range(2)])
@@ -31,8 +28,16 @@ class LLM_DOUBLE_REPONSE(llm.LLM):  # 'extends' should be 'LLM_STUB(LLM)'
 
 class TestLLM(unittest.TestCase):
     def setUp(self):
-        self.llm_double = LLM_DOUBLE_REPONSE("test_stub_double")
-        self.llm_example = LLM_DOUBLE_REPONSE("test_stub_example")
+        double_info = ModelInfo(
+            provider="debug",
+            model_id="test_stub_double",
+            max_context=200_000,
+            cost_1M_in=0.00,
+            cost_1M_out=00.00
+        )
+        
+        self.llm_double = LLM_DOUBLE_REPONSE("test_stub_double", double_info)
+        self.llm_example = LLM_DOUBLE_REPONSE("test_stub_example", double_info)
 
         self.dafny_exec = gl.DAFNY_EXEC
 
@@ -149,7 +154,7 @@ class TestLLM(unittest.TestCase):
         self.run_options.examples_to_augment_prompt_type  = llm_pipeline.ExampleStrategies.NONE
 
         (self.assertion_groups, self.model_dir, self.assertion_dataset_info_df) = llm_pipeline.setup_llm_evaluate_all(self.llm_double, self.global_options, self.run_options)
-        self.test_group : assert_lib.assertionGroup
+        self.test_group : assert_lib.assertionGroup = None
         for group in self.assertion_groups:
             if("HasAddends" in str(group)):
                 self.test_group = group
@@ -247,7 +252,7 @@ class TestLLM(unittest.TestCase):
         self.assertTrue(expected_program_folder.exists() and expected_program_folder.is_dir(),
                         f"Expected program folder not found: {expected_program_folder}")
 
-        verification_path = expected_program_folder / "method_start_0_as_start_67_end_127" / "verification" / "Assertion_id_3"
+        verification_path = expected_program_folder / "method_start_0_as_start_67_end_127" / "verification" / "Assertion_id_3_3"
         self.assertTrue(verification_path.exists() and verification_path.is_dir(),
                         f"Expected assertions_list directory not found: {verification_path}")
 
@@ -294,7 +299,7 @@ class TestLLM(unittest.TestCase):
         self.assertIsNotNone(self.test_group, "test group should be not none")
 
         llm_pipeline.process_group(self.test_group, self.model_dir,
-                                   self.assertion_dataset_info_df, self.llm_example, 
+                                   self.assertion_dataset_info_df, self.llm_double, 
                                    self.assertion_groups, self.run_options, self.global_options)
         
         result_dir = self.llm_temp_path / "test_stub_example__nAssertions_ALL_nRounds_1_nRetries_1_addError_True_addExamp_3_alpha_0.5_ExType_ExampleStrategies.DYNAMIC_loc_LocStrategies.LLM_EXAMPLE"
@@ -313,7 +318,7 @@ class TestLLM(unittest.TestCase):
                         f"Expected localization_raw_response.txt not found at: {localization_file}")
 
         content = localization_file.read_text(encoding="utf-8").strip()
-        self.assertTrue("Example 3 Error" in content, f"Contet of file {localization_file} expected Example errors in the prompt")
+        self.assertTrue("=== EXAMPLE ===" in content, f"Contet of file {localization_file} expected Example errors in the prompt")
 
 
     def test_llm_inference_example(self):
@@ -328,7 +333,6 @@ class TestLLM(unittest.TestCase):
 
         self.run_options.localization = llm_pipeline.LocStrategies.LLM_EXAMPLE
         self.run_options.examples_to_augment_prompt_type_pos= llm_pipeline.ExampleStrategies.DYNAMIC
-        self.run_options.examples_to_augment_prompt_type_pos= llm_pipeline.ExampleStrategies.DYNAMIC
         self.run_options.examples_weight_of_error_message_pos = 0.5
         self.run_options.number_examples_to_add_pos=3
 
@@ -340,7 +344,7 @@ class TestLLM(unittest.TestCase):
         self.assertIsNotNone(self.test_group, "test group should be not none")
 
         llm_pipeline.process_group(self.test_group, self.model_dir,
-                                   self.assertion_dataset_info_df, self.llm_example, 
+                                   self.assertion_dataset_info_df, self.llm_double, 
                                    self.assertion_groups, self.run_options, self.global_options)
         result_dir = self.llm_temp_path / "test_stub_example__nAssertions_ALL_nRounds_1_nRetries_1_addError_True_addExamp_3_alpha_0.5_ExType_ExampleStrategies.DYNAMIC_loc_LocStrategies.LLM_EXAMPLE"
         self.assertTrue(result_dir.exists() and result_dir.is_dir(),
@@ -355,10 +359,10 @@ class TestLLM(unittest.TestCase):
 
         assertions_list_file = assertions_list_path / "assertions_prompt.txt"
         self.assertTrue(assertions_list_file.exists() and assertions_list_file.is_file(),
-                        f"Expected assertions_parserd.json not found at: {assertions_list_file}")
+                        f"Expected assertions_parsed.json not found at: {assertions_list_file}")
 
         content = assertions_list_file.read_text(encoding="utf-8").strip()
-        self.assertTrue("Example 3 Error" in content, f"Prompt should have examples there")
+        self.assertTrue("=== EXAMPLE ===" in content, f"Prompt should have examples there")
           
 
 

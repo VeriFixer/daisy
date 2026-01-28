@@ -93,8 +93,8 @@ class TestAssertMethodClass(unittest.TestCase):
 
         self.assertEqual(
             data,
-            [2,3],
-            msg=f"Expected content [2,3] in {json_file}, got: {data}",
+            [[2,3]],
+            msg=f"Expected content [[2,3]] in {json_file}, got: {data}",
         )
   
     def test_get_all_method_with_assertions_at_ind_relocated(self):

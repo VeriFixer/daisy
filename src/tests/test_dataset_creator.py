@@ -18,7 +18,7 @@ class TestAssertMethodClass(unittest.TestCase):
         #self.outputdir = tempfile.TemporaryDirectory()
         #self.output_path = Path(self.outputdir.name)
 
-        self.outputdir = gl.TEMP_FOLDER / "wtf"
+        self.outputdir = gl.TEMP_FOLDER / "test_dataset_creator"
         self.output_path = self.outputdir
 
         self.data_path_630: Path = gl.UNIT_TESTS_DIR / "files/dataset_creator_assertion_group_test/630-dafny_tmp_tmpz2kokaiq_Solution_dfy"

@@ -8,75 +8,75 @@ import threading
 from pathlib import Path
 
 from enum import Enum
+import resource
+
 class Status(Enum):
     VERIFIED = "VERIFIED"
     NOT_VERIFIED = "NOT_VERIFIED"
     ERROR = "ERROR"
     MEMORY_ERROR = "MEMORY_ERROR"
 
+VALID_OPTIONS = ['resolve', 'verify', 'build', 'run', 'asserttree']
 
-# Run dafny from text can have collisons for same program 
-# By default dafny from text runs in a fresh to erase directory
-def run_dafny_from_text(dafny_exec : Path, dafny_code : str, destination_path_folder : Path = gl.TEMP_FOLDER, option : str ="verify", tmp : bool = True) -> tuple[Status,str,str]:
-    # Always use a unique per-thread temporary directory
-    if tmp:
-        # Create a uniquely named temp directory using thread ID
-        thread_safe_dir = tempfile.mkdtemp(prefix=f"dafny_thread_{os.getpid()}_")
-        used_destination_path_folder = thread_safe_dir
-    else:
-        used_destination_path_folder = destination_path_folder
-        os.makedirs(destination_path_folder, exist_ok=True)
-
-    # Write to a uniquely named temp file within the thread-safe directory
-    temp_file_path: Path = Path(os.path.join(used_destination_path_folder, f"temp_{os.getpid()}_{threading.get_ident()}.dfy"))
-    with open(temp_file_path, "w", encoding="utf-8") as temp_file:
-        temp_file.write(dafny_code)
-
-    # Run Dafny from the thread-safe file
-    status, stdout_content, stderr_content = run_dafny_temp_file_folder(
-        dafny_exec, temp_file_path, option
-    )
-
-    # Cleanup
-    if tmp:
-        try:
-            # Only remove if no MEMORY_ERROR or ERROR trigger
-            #if(status in [Status.NOT_VERIFIED, Status.VERIFIED ]):
-            os.remove(temp_file_path)
-            shutil.rmtree(used_destination_path_folder, ignore_errors=True)
-        except Exception as e:
-            print(f"Cleanup error: {e}")
-    return status, stdout_content, stderr_content
-
-def run_dafny_temp_file_folder(dafny_exec: Path, dafny_program : Path, option : str="verify") -> tuple[Status,str,str]:
+def build_dafny_command(dafny_exec: Path, dafny_program: Path, option: str = "verify") -> list[str]:
     """
-    Runs a Dafny program, capturing stdout and stderr, with a specific operation mode.
-
-    Returns: tuple (status, stdout_content, stderr_content)
-      - status: 'ERROR', 'VERIFIED', 'NOT_VERIFIED', 'MEMORY_ERROR'
+    Build the Dafny execution command and determine if memory limits should be applied.
+    Returns (command, use_mem_limit)
     """
-    if not os.path.isabs(dafny_exec) or not os.path.isabs(dafny_program):
-        raise ValueError("All paths must be absolute.")
+    if option not in VALID_OPTIONS:
+        raise ValueError(f"Invalid option '{option}'. Must be one of {VALID_OPTIONS}.")
 
-    valid_options = ['resolve', 'verify', 'build', 'run', 'asserttree']
-    if option not in valid_options:
-        raise ValueError(f"Invalid option '{option}'. Must be one of {valid_options}.")
+    cmd: list[str] = []
 
-    command : list[str] = []
     if option == "verify":
-        command = ["systemd-run", "--user", "--scope", "-p" ,f"MemoryMax={gl.VERIFIER_MAX_MEMORY}G", str(dafny_exec), option, str(dafny_program), "--cores", "1", "--verification-time-limit", str(gl.VERIFIER_TIME_LIMIT)]
+        if gl.IS_SYSTEMD_AVAILABLE:
+            cmd = [
+                "systemd-run", "--user", "--scope",
+                "-p", f"MemoryMax={gl.VERIFIER_MAX_MEMORY}G",
+                str(dafny_exec), option, str(dafny_program),
+                "--cores", "1",
+                "--verification-time-limit", str(gl.VERIFIER_TIME_LIMIT)
+            ]
+        else:
+            # Direct execution with memory limit
+
+            cmd = [
+                str(dafny_exec), option, str(dafny_program),
+                "--cores", "1",
+                "--verification-time-limit", str(gl.VERIFIER_TIME_LIMIT),
+                f"--solver-option:O:memory_max_size={gl.VERIFIER_MAX_MEMORY*1000}"
+            ]
     else:
-        command= [str(dafny_exec), option, str(dafny_program), "--cores", "1"]
+        cmd = [str(dafny_exec), option, str(dafny_program), "--cores", "1"]
 
-    # Run process
-    result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    stdout_content = result.stdout
-    stderr_content = result.stderr
+    return cmd
 
-    # Otherwise continue with original logic
+# -------------------------
+# Helper: run a command with optional memory limit
+# -------------------------
+def run_command(command: list[str], use_mem_limit: bool = False, mem_gb: int = 24) -> tuple[int, str, str]:
+    """
+    Run a subprocess command with optional hard memory limit.
+    Returns (returncode, stdout, stderr)
+    """
+    result = subprocess.run(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+    return result.returncode, result.stdout, result.stderr
+    
+# -------------------------
+# Helper: parse Dafny output
+# -------------------------
+def parse_dafny_output(stdout: str, stderr: str, command: list[str]) -> Status:
+    """
+    Parse Dafny stdout/stderr to determine verification status
+    """
     status = Status.ERROR  # default
     found_line = 0
-    for line in stdout_content.splitlines():
+    for line in stdout.splitlines():
         if "Dafny program verifier finished" in line:
             found_line = 1
             if "time out" in line:
@@ -97,65 +97,56 @@ def run_dafny_temp_file_folder(dafny_exec: Path, dafny_program : Path, option : 
             break
     if(found_line == 0): # Memory shortage on program
         status = Status.MEMORY_ERROR
-        print(f"Memory Shortage: Command was: {" ".join(command)}")
+    return status
 
-    return (status, stdout_content, stderr_content)
-
-
-def run_dafny(dafny_exec : Path, dafny_program: Path, destination_path_folder : Path, option : str ="verify")-> tuple[Status,str,str]:
+# -------------------------
+# Main: run Dafny on a file
+# -------------------------
+def run_dafny(dafny_exec: Path, dafny_program: Path, destination_folder: Path, option: str = "verify") -> tuple[Status, str, str]:
     """
-    Runs a Dafny program, capturing the standard output and error, with the specified operation mode.
-
-    Parameters:
-    - dafny_exec (str): Absolute path to the Dafny executable.
-    - dafny_program (str): Absolute path to the Dafny program file.
-    - destination_path_folder (str): Absolute path to the destination folder where the Dafny program will be copied and executed.
-    - option (str): Operation mode for the Dafny execution. Must be one of:
-        - 'resolve': Only check for parse and type resolution errors.
-        - 'verify': Verify the program.
-        - 'build': Produce an executable binary or a library.
-        - 'run': Execute the program (default).
-    Returns: tuple (status, stdout_content, stderr_content)
-      - status can be ERROR, VERIFIED, NOT_VERIFIED
+    Run Dafny on a program file, copying it to destination folder if needed.
     """
-    if not os.path.isabs(dafny_exec) or not os.path.isabs(dafny_program) or not os.path.isabs(destination_path_folder):
+    if not os.path.isabs(dafny_exec) or not os.path.isabs(dafny_program) or not os.path.isabs(destination_folder):
         raise ValueError("All paths must be absolute.")
 
-    valid_options = ['resolve', 'verify', 'build', 'run', 'asserttree']
-    if option not in valid_options:
-        raise ValueError(f"Invalid option '{option}'. Must be one of {valid_options}.")
+    os.makedirs(destination_folder, exist_ok=True)
+    dest_file = destination_folder / dafny_program.name
+    if dafny_program != dest_file:
+        shutil.copy(dafny_program, dest_file)
 
-    os.makedirs(destination_path_folder, exist_ok=True)
-
-    destination_dafny_program = os.path.join(destination_path_folder, os.path.basename(dafny_program))
-    if(str(dafny_program) != destination_dafny_program):
-      shutil.copy(dafny_program,  destination_dafny_program)
-
-    command : list[str] = []
-    if(option == "verify"):
-       command = ["systemd-run", "--user", "--scope", "-p" ,f"MemoryMax={gl.VERIFIER_MAX_MEMORY}G", str(dafny_exec), option, str(dafny_program), "--cores", "1", "--verification-time-limit", str(gl.VERIFIER_TIME_LIMIT)]
+    cmd = build_dafny_command(dafny_exec, dest_file, option)
+    returncode, stdout, stderr = run_command(cmd)
+    if(returncode == -1):
+        status = Status.ERROR
     else:
-       command = [str(dafny_exec), option, str(destination_dafny_program), "--cores","1"]
+        status = parse_dafny_output(stdout, stderr, cmd)
+    return status, stdout, stderr
 
-    result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    stdout_content = result.stdout
-    stderr_content = result.stderr
+# -------------------------
+# Run Dafny from code string in temp file
+# -------------------------
+def run_dafny_from_text(dafny_exec: Path, dafny_code: str, destination_folder: Path = gl.TEMP_FOLDER, option: str = "verify", tmp: bool = True) -> tuple[Status, str, str]:
+    """
+    Run Dafny from a code string, optionally in a unique temp folder per thread
+    """
+    if tmp:
+        thread_dir = tempfile.mkdtemp(prefix=f"dafny_thread_{os.getpid()}_")
+        used_folder = Path(thread_dir)
+    else:
+        used_folder = Path(destination_folder)
+        os.makedirs(used_folder, exist_ok=True)
 
-    # Error only triggers if the program did not fhished as expected Parse errors are other kind of errors
-    # Send erro in case ot time out also
-    status = Status.ERROR  # default status
-    for line in stdout_content.splitlines():
-        if "Dafny program verifier finished" in line:
-            if "time out" in line:
-                status = Status.ERROR
-            elif "0 errors" in line:
-                 status = Status.VERIFIED
-            else:
-                 status = Status.NOT_VERIFIED
-            break
+    temp_file = used_folder / f"temp_{os.getpid()}_{threading.get_ident()}.dfy"
+    with open(temp_file, "w", encoding="utf-8") as f:
+        f.write(dafny_code)
 
-    return (status, stdout_content, stderr_content)
+    status, stdout, stderr = run_dafny(dafny_exec, temp_file, used_folder, option)
 
-# USAGE REAG OF OPENAI thinking mini was 19 cents
-# 24k input tokens 
-# 90.5K output tokens
+    if tmp:
+        try:
+            temp_file.unlink(missing_ok=True)
+            shutil.rmtree(used_folder, ignore_errors=True)
+        except Exception as e:
+            print(f"Cleanup error: {e}")
+
+    return status, stdout, stderr
