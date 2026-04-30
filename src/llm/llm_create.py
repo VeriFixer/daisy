@@ -2,6 +2,7 @@ from llm.llm_configurations import LLM, MODEL_REGISTRY
 from llm.llm_configurations import LLM_COST_STUB_RESPONSE_IS_PROMPT, LLM_YIELD_RESULT_WITHOUT_API,  LLM_COST_STUB_RESPONSE_IS_LIKE_DAFNYBENCH
 from llm.llm_open_ai import OpenAI_LLM
 from llm.llm_amazon_bedrock import AmazonBedrock_LLM
+from llm.llm_openrounter import OpenRouter_LLM
 
 def create_llm(name: str, model: str, **kwargs) -> LLM:
     if model not in MODEL_REGISTRY:
@@ -14,6 +15,9 @@ def create_llm(name: str, model: str, **kwargs) -> LLM:
 
     if info.provider == "bedrock":
         return AmazonBedrock_LLM(name, info, **kwargs)
+
+    if info.provider == "openrouter":
+        return OpenRouter_LLM(name, info, **kwargs)
     
     if info.provider == "debug":
         if info.model_id == "cost_stub_almost_real":

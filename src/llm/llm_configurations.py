@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class ModelInfo:
-    provider: str          # "openai" | "bedrock"
+    provider: str          # "openai" | "bedrock" | "openrouter"
     model_id: str          # provider-specific model id
     max_context: int
     cost_1M_in : float
@@ -94,6 +94,22 @@ MODEL_REGISTRY = {
         max_context=128_000,
         cost_1M_in=2.00,
         cost_1M_out=8.00
+    ),
+
+    # OpenRouter (free models)
+    "openrouter-free": ModelInfo(
+        provider="openrouter",
+        model_id="openrouter/free",
+        max_context=131_000,
+        cost_1M_in=0.0,
+        cost_1M_out=0.0,
+    ),
+    "qwen3-coder-free": ModelInfo(
+        provider="openrouter",
+        model_id="qwen/qwen3-coder:free",
+        max_context=256_000,
+        cost_1M_in=0.0,
+        cost_1M_out=0.0,
     ),
 
     # Stubs 

@@ -6,6 +6,7 @@ from llm.llm_configurations import MODEL_REGISTRY, ModelInfo, LLM
 from llm.llm_create import create_llm
 from llm.llm_open_ai import OpenAI_LLM
 from llm.llm_amazon_bedrock import AmazonBedrock_LLM
+from llm.llm_openrounter import OpenRouter_LLM
 
 class TestAllModels(unittest.TestCase):
 
@@ -77,7 +78,7 @@ class TestModelRegistry(unittest.TestCase):
         for name, info in MODEL_REGISTRY.items():
             self.assertIsInstance(name, str)
             self.assertIsInstance(info, ModelInfo)
-            self.assertIn(info.provider, ("openai", "bedrock","debug"))
+            self.assertIn(info.provider, ("openai", "bedrock", "openrouter", "debug"))
             self.assertIsInstance(info.model_id, str)
             self.assertGreater(info.max_context, 0)
             # cost fields exist and are sane
@@ -100,5 +101,7 @@ class TestLLMFactory(unittest.TestCase):
                 self.assertIsInstance(llm, OpenAI_LLM)
             elif info.provider == "bedrock":
                 self.assertIsInstance(llm, AmazonBedrock_LLM)
+            elif info.provider == "openrouter":
+                self.assertIsInstance(llm, OpenRouter_LLM)
             elif info.provider != "debug":
                 self.fail(f"Unknown provider {info.provider}")
