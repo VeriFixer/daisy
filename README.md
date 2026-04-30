@@ -1,198 +1,126 @@
 # Daisy
 
-Infer helper annotations in Dafny code using LLM-powered assertion repair.
+Infer helper assertions in Dafny code using LLM-powered assertion repair.
+
+Daisy takes a Dafny file that fails verification, predicts where helper assertions are needed, generates candidates via an LLM, and verifies them against the Dafny verifier — returning a corrected method if a fix is found.
 
 ## Quick Start
 
 ```sh
-PYTHONPATH=src python src/single_file_run.py myfile.dfy
+python -m src_new.cli myfile.dfy --model openrouter-free --localization LLM
 ```
 
-This runs the full pipeline (extract methods → verify → localize → infer assertions → verify candidates) on a single `.dfy` file using the default free OpenRouter model.
+No dataset needed. Just point it at a `.dfy` file.
 
-## CLI Arguments
-
-| Argument | Type | Default | Description |
-|---|---|---|---|
-| `path_to_code` | positional | *(required)* | Path to the `.dfy` file to analyze |
-| `--method` | string | `None` | Method name to analyze. If omitted, the first failing method is selected |
-| `--error-file` | string | `None` | Pre-computed verifier error file. Skips initial verification when provided |
-| `--localization` | choice | `LLM` | Localization strategy: `LLM`, `LLM_EXAMPLE`, `LAUREL`, `LAUREL_BETTER`, `HYBRID`, `NONE` |
-| `--examples` | choice | `NONE` | Example retrieval strategy: `NONE`, `RANDOM`, `TFIDF`, `EMBEDDED`, `DYNAMIC` |
-| `--model` | string | `openrouter-free` | Model name from `MODEL_REGISTRY` (see table below) |
-| `--num-assertions` | int | `10` | Number of assertion candidates per position |
-| `--rounds` | int | `1` | Number of independent inference rounds |
-| `--no-color` | flag | `False` | Disable colored terminal output (useful when piping to files or agents) |
-
-### Examples
-
+Debug mode (no API key):
 ```sh
-# Use a specific model and localization strategy
-PYTHONPATH=src python src/single_file_run.py myfile.dfy --model gpt-4.1 --localization HYBRID
-
-# Analyze a specific method with pre-computed errors
-PYTHONPATH=src python src/single_file_run.py myfile.dfy --method MyMethod --error-file errors.txt
-
-# Run in mock mode (no API key needed)
-PYTHONPATH=src python src/single_file_run.py myfile.dfy --model cost_stub_almost_real
+python -m src_new.cli myfile.dfy --model cost_stub_almost_real
 ```
 
-## Example Files (Helper Assertion Repair)
+## Walkthrough: Fixing a Lemma
 
-This pipeline repairs **helper `assert` statements** — not loop invariants. The extracted dataset (`dataset/dafny_assertion_dataset.tar.gz`) contains programs with specific helper assertions removed, along with pre-computed verifier errors. Each dataset entry has:
+Consider this inductive lemma that fails verification — the inductive step is missing a hint:
 
-- `program_without_assertion_group.dfy` — the broken program (assertions removed, invariants intact)
-- `verifier_output.txt` — pre-computed Dafny errors (use with `--error-file` to skip verification)
-- `original_program.dfy` — ground truth with correct assertions
-
-Extract the dataset first (if not already done):
-```sh
-mkdir -p dataset/extracted
-tar xzf dataset/dafny_assertion_dataset.tar.gz -C dataset/
+```dafny
+lemma {:induction false} Divby2(n: nat)
+ensures (n*(n-1))%2 == 0
+{
+    if n == 0 {
+        assert (1*(1-1))%2 == 0;
+    } else {
+        Divby2(n - 1);
+         // ← missing: assert (n-1)*(n-2) == n*n - 3*n + 2;
+    }
+}
 ```
 
-Below are curated examples sorted by difficulty. All paths relative to project root.
-
-### 1. Lemma hint — `SENG2011_exam_ex4` (9 lines, 1 assert)
-
-Inductive lemma proving `n*(n-1) % 2 == 0`. Needs an algebraic expansion hint in the inductive step: `assert (n-1)*(n-2) == n*n - 3*n + 2`.
-
+Run Daisy on it:
 ```sh
-# Full pipeline (verify + localize + infer)
-PYTHONPATH=src python src/single_file_run.py \
-  dataset/dafny_assertion_dataset/SENG2011_tmp_tmpgk5jq85q_exam_ex4_dfy/method_start_0_as_start_197_end_231/program_without_assertion_group.dfy
-
-# Skip verification using pre-computed errors
-PYTHONPATH=src python src/single_file_run.py \
-  dataset/dafny_assertion_dataset/SENG2011_tmp_tmpgk5jq85q_exam_ex4_dfy/method_start_0_as_start_197_end_231/program_without_assertion_group.dfy \
-  --error-file dataset/dafny_assertion_dataset/SENG2011_tmp_tmpgk5jq85q_exam_ex4_dfy/method_start_0_as_start_197_end_231/verifier_output.txt
+python -m src_new.cli example.dfy --model openrouter-free --localization LLM
 ```
 
-### 2. Sequence sum — `dafny-duck_p1` (16 lines, 2 asserts)
+Daisy will:
+1. Verify the file → finds it fails
+2. Localize → predicts line 7 needs an assertion
+3. Infer → generates 10 candidate assertions
+4. Verify → tests combinations against Dafny
+5. Output the corrected method (or "no fix found")
 
-Array sum via recursive `Sum` function. Needs two sequence-slicing hints: `assert xs[..i+1] == xs[..i] + [xs[i]]` inside the loop and `assert xs[..] == xs[..i]` after it.
+You can try this on a real dataset example:
+```sh
+python -m src_new.cli \
+  dataset/extracted/dafny_assertion_dataset/SENG2011_tmp_tmpgk5jq85q_exam_ex4_dfy/method_start_0_as_start_197_end_231/program_without_assertion_group.dfy \
+  --model openrouter-free --localization LLM
+```
+
+## CLI Options
+
+| Argument | Default | Description |
+|---|---|---|
+| `file` (positional) | *(required)* | Path to `.dfy` file |
+| `--localization` | `LLM` | Position strategy: `LLM`, `LLM_EXAMPLE`, `LAUREL`, `LAUREL_BETTER`, `HYBRID`, `NONE` |
+| `--model` | `openrouter-free` | Model from registry (see table below) |
+| `--num-assertions` | `10` | Candidates per position |
+| `--rounds` | `1` | Independent inference rounds |
+| `--no-color` | `False` | Disable colored output |
+
+### Localization Strategies
+
+| Strategy | Description |
+|---|---|
+| `LLM` | Ask the LLM to predict assertion positions from numbered code + error |
+| `LLM_EXAMPLE` | Same as LLM but prepends similar examples from the dataset |
+| `LAUREL` | Static analysis via external C# `placeholder_finder` binary |
+| `LAUREL_BETTER` | Improved LAUREL heuristics |
+| `HYBRID` | LAUREL_BETTER positions first, then unique LLM positions |
+| `NONE` | Skip localization (file must already contain placeholder strings) |
+
+### More Examples
 
 ```sh
-# LLM localization
-PYTHONPATH=src python src/single_file_run.py \
-  dataset/dafny_assertion_dataset/dafny-duck_tmp_tmplawbgxjo_p1_dfy/method_start_162_as_start_406_end_443_as_start_475_end_499/program_without_assertion_group.dfy \
-  --localization LLM
+# HYBRID localization (combines static + LLM)
+python -m src_new.cli myfile.dfy --model gpt-4.1 --localization HYBRID
 
-# HYBRID localization
-PYTHONPATH=src python src/single_file_run.py \
-  dataset/dafny_assertion_dataset/dafny-duck_tmp_tmplawbgxjo_p1_dfy/method_start_162_as_start_406_end_443_as_start_475_end_499/program_without_assertion_group.dfy \
+# More candidates, multiple rounds
+python -m src_new.cli myfile.dfy --model claude-haiku-4.5 --num-assertions 15 --rounds 2
+
+# LAUREL-only (no LLM for localization, still uses LLM for assertion generation)
+python -m src_new.cli myfile.dfy --model openrouter-free --localization LAUREL_BETTER
+```
+
+### Dataset Examples (Sorted by Difficulty)
+
+The extracted dataset contains programs with helper assertions removed. Each entry has the broken program, verifier errors, and ground truth.
+
+```sh
+# Extract dataset (if not done)
+tar xzf dataset/dafny_assertion_dataset.tar.gz -C dataset/extracted/
+```
+
+**1. Lemma hint** — 1 missing assert, algebraic expansion:
+```sh
+python -m src_new.cli \
+  dataset/extracted/dafny_assertion_dataset/SENG2011_tmp_tmpgk5jq85q_exam_ex4_dfy/method_start_0_as_start_197_end_231/program_without_assertion_group.dfy
+```
+
+**2. Sequence sum** — 2 missing asserts, sequence slicing hints:
+```sh
+python -m src_new.cli \
+  dataset/extracted/dafny_assertion_dataset/dafny-duck_tmp_tmplawbgxjo_p1_dfy/method_start_162_as_start_406_end_443_as_start_475_end_499/program_without_assertion_group.dfy \
   --localization HYBRID
-
-# With pre-computed errors
-PYTHONPATH=src python src/single_file_run.py \
-  dataset/dafny_assertion_dataset/dafny-duck_tmp_tmplawbgxjo_p1_dfy/method_start_162_as_start_406_end_443_as_start_475_end_499/program_without_assertion_group.dfy \
-  --error-file dataset/dafny_assertion_dataset/dafny-duck_tmp_tmplawbgxjo_p1_dfy/method_start_162_as_start_406_end_443_as_start_475_end_499/verifier_output.txt \
-  --localization LLM
 ```
 
-### 3. Real sqrt test — `DafnyProjects_sqrt` (17 lines, 1 assert)
-
-Tests that `sqrt(4.0) == 2.0` using monotonic-square lemma. Needs `assert r == 2.0` after ruling out `r < 2.0`.
-
+**3. Set counting** — 1 missing assert, set comprehension decomposition:
 ```sh
-PYTHONPATH=src python src/single_file_run.py \
-  dataset/dafny_assertion_dataset/DafnyProjects_tmp_tmp2acw_s4s_sqrt_dfy/method_start_94_as_start_228_end_243/program_without_assertion_group.dfy \
-  --localization LLM
-
-PYTHONPATH=src python src/single_file_run.py \
-  dataset/dafny_assertion_dataset/DafnyProjects_tmp_tmp2acw_s4s_sqrt_dfy/method_start_94_as_start_228_end_243/program_without_assertion_group.dfy \
-  --localization LAUREL_BETTER
-```
-
-### 4. Set counting — `Clover_count_lessthan` (20 lines, 1 assert)
-
-Counts elements below a threshold in a set. Needs a set-comprehension decomposition hint: `assert (set i | i in grow' && i < threshold) == (set i | i in grow && i < threshold) + if i < threshold then {i} else {}`.
-
-```sh
-PYTHONPATH=src python src/single_file_run.py \
-  dataset/dafny_assertion_dataset/Clover_count_lessthan_dfy/method_start_0_as_start_460_end_591/program_without_assertion_group.dfy \
+python -m src_new.cli \
+  dataset/extracted/dafny_assertion_dataset/Clover_count_lessthan_dfy/method_start_0_as_start_460_end_591/program_without_assertion_group.dfy \
   --localization LLM --num-assertions 15
-
-PYTHONPATH=src python src/single_file_run.py \
-  dataset/dafny_assertion_dataset/Clover_count_lessthan_dfy/method_start_0_as_start_460_end_591/program_without_assertion_group.dfy \
-  --localization HYBRID --num-assertions 15
-
-# With pre-computed errors + LAUREL
-PYTHONPATH=src python src/single_file_run.py \
-  dataset/dafny_assertion_dataset/Clover_count_lessthan_dfy/method_start_0_as_start_460_end_591/program_without_assertion_group.dfy \
-  --error-file dataset/dafny_assertion_dataset/Clover_count_lessthan_dfy/method_start_0_as_start_460_end_591/verifier_output.txt \
-  --localization LAUREL
 ```
 
-### 5. Multiset slice — `Clover_only_once` (21 lines, 1 assert)
-
-Checks if a key appears exactly once. Needs `assert a[..a.Length] == a[..]` after the loop to connect the invariant to the postcondition.
-
+Compare with ground truth:
 ```sh
-PYTHONPATH=src python src/single_file_run.py \
-  dataset/dafny_assertion_dataset/Clover_only_once_dfy/method_start_0_as_start_460_end_489/program_without_assertion_group.dfy \
-  --localization LLM
-
-PYTHONPATH=src python src/single_file_run.py \
-  dataset/dafny_assertion_dataset/Clover_only_once_dfy/method_start_0_as_start_460_end_489/program_without_assertion_group.dfy \
-  --localization LAUREL_BETTER
+cat dataset/extracted/dafny_assertion_dataset/Clover_count_lessthan_dfy/original_program.dfy
 ```
-
-### 6. Divisibility lemma — `summer-school exercise01` (19 lines, 2 asserts)
-
-Predicate `divides(a, b)` with test assertions `assert divides(2, 6)` and `assert divides(3, 9)`.
-
-```sh
-PYTHONPATH=src python src/single_file_run.py \
-  dataset/dafny_assertion_dataset/summer-school-2020_tmp_tmpn8nf7zf0_chapter02_solutions_exercise01_solution_dfy/method_start_153_as_start_257_end_277_as_start_324_end_344/program_without_assertion_group.dfy \
-  --localization LLM
-
-PYTHONPATH=src python src/single_file_run.py \
-  dataset/dafny_assertion_dataset/summer-school-2020_tmp_tmpn8nf7zf0_chapter02_solutions_exercise01_solution_dfy/method_start_153_as_start_257_end_277_as_start_324_end_344/program_without_assertion_group.dfy \
-  --localization HYBRID --rounds 2
-```
-
-### 7. Array content — `dafny-exercise maxArray` (22 lines, 1 assert)
-
-Tests `maxArray` by asserting array contents after initialization: `assert arr[0] == -11 && arr[1] == 2 && arr[2] == 42 && arr[3] == -4`.
-
-```sh
-PYTHONPATH=src python src/single_file_run.py \
-  dataset/dafny_assertion_dataset/dafny-exercise_tmp_tmpouftptir_maxArray_dfy/method_start_424_as_start_517_end_584/program_without_assertion_group.dfy \
-  --localization LLM
-
-PYTHONPATH=src python src/single_file_run.py \
-  dataset/dafny_assertion_dataset/dafny-exercise_tmp_tmpouftptir_maxArray_dfy/method_start_424_as_start_517_end_584/program_without_assertion_group.dfy \
-  --localization LAUREL --examples TFIDF
-```
-
-### Comparing with ground truth
-
-Each dataset entry's parent folder contains the verified original:
-
-```sh
-# View ground truth (with correct assertions)
-cat dataset/dafny_assertion_dataset/Clover_count_lessthan_dfy/original_program.dfy
-
-# Diff to see exactly which assertions were removed
-diff \
-  dataset/dafny_assertion_dataset/Clover_count_lessthan_dfy/method_start_0_as_start_460_end_591/program_without_assertion_group.dfy \
-  dataset/dafny_assertion_dataset/Clover_count_lessthan_dfy/original_program.dfy
-```
-
-### Docker one-liner
-
-```sh
-docker run --rm -it \
-  -v "$(pwd)/src:/app/src:delegated" \
-  -w /app \
-  dafny_research:latest bash -c \
-  'PYTHONPATH=src python src/single_file_run.py \
-    dataset/dafny_assertion_dataset/SENG2011_tmp_tmpgk5jq85q_exam_ex4_dfy/method_start_0_as_start_197_end_231/program_without_assertion_group.dfy \
-    --localization LLM'
-```
-
----
 
 ## Available Models
 
@@ -210,304 +138,392 @@ docker run --rm -it \
 | `gpt-4.1` | openai | `gpt-4.1-2025-04-14` |
 | `openrouter-free` | openrouter | `openrouter/free` |
 | `qwen3-coder-free` | openrouter | `qwen/qwen3-coder:free` |
-| `cost_stub_response_dafnybench` | debug | `cost_stub_response_dafnybench` |
-| `cost_stub_almost_real` | debug | `cost_stub_almost_real` |
-| `without_api` | debug | `without_api` |
+| `cost_stub_almost_real` | debug | *(no API key needed)* |
+| `cost_stub_response_dafnybench` | debug | *(no API key needed)* |
+| `without_api` | debug | *(no API key needed)* |
 
-Debug models require no API key and are useful for testing the pipeline setup.
+### API Keys
 
-## API Key Configuration
-
-Each provider requires specific environment variables:
-
-| Provider | Environment Variables |
+| Provider | Environment Variable |
 |---|---|
-| **OpenRouter** | `OPENROUTER_API_KEY` |
-| **OpenAI** | `OPENAI_API_KEY` |
-| **Bedrock** | `AWS_BEARER_TOKEN_BEDROCK` and `AWS_DEFAULT_REGION` |
+| OpenRouter | `OPENROUTER_API_KEY` |
+| OpenAI | `OPENAI_API_KEY` |
+| Bedrock | `AWS_BEARER_TOKEN_BEDROCK` + `AWS_DEFAULT_REGION` |
 
-If the required key is not set, the provider falls back to mock mode (returns stub responses).
-
-## Example Output
-
-```
-═══ Dafny Assertion Repair ═══
-File: example.dfy
-Model: openrouter-free (openrouter/free)
-
-── Verification ──
-Status: NOT_VERIFIED
-Errors:
-  example.dfy(11,20): Error: invariant could not be proved...
-
-Selected method: ExampleMethod
-
-── Localization ──
-Strategy: LLM
-Predicted lines: [6, 8]
-
-── Assertion Inference ──
-Candidates (10 per position, 2 positions):
-  Position 1: ["assert X;", "assert Y;", ...]
-  Position 2: ["assert A;", "assert B;", ...]
-
-── Verification ──
-Tested 20 combinations, 1 verified ✓
-
-── Corrected Method ──
-method ExampleMethod(...) {
-  ...
-  assert count == |set i | i in grow && i < threshold|;
-  ...
-}
-```
+Missing keys → provider falls back to mock mode.
 
 ---
 
-## Research / Paper Replication
+## Replicating Research Questions
 
-### Replicating Paper Results Without Recomputing Dataset
+The research scripts run batch evaluation over the full dataset using cached results. They require pre-computed inference results (included in the compressed archives).
 
-You can use the jupyter notebooks to get all info used on the paper on data analysis.
+### Setup
 
-The figures used in the paper are generated using three scripts, all of which output their results under the `images/` folder:
-
-* `src/data_analysys_dataset_overview.ipynb` — Figures 2 and 3 of the paper
-* `src/data_analysys_pre_tests.ipynb` — Table 2 (accuracy; cost was manually added with consumed tokens info)
-* `src/data_analysys_cost_statistics.ipynb` — Table 3
-* `src/data_analysys_rq1_best_overall.ipynb` — RQ1
-* `src/data_analysys_rq2_loc_strategy.ipynb` — RQ2
-* `src/data_analysys_rq1_best_overall.ipynb` — RQ3
-* `src/data_analysys_rq4_different_llms.ipynb` — RQ4
-
-To launch the notebooks via Docker follow section 7 of [README_DOCKER.md](README_DOCKER.md).
-(If file-not-found errors occur, you forgot to extract experimental results first.)
-
-### Replicating Paper Recomputing Inference Results
-
-Explore the main scripts:
-
-* `src/main_rq1_best_overall.py`
-* `src/main_rq2_fault_localization.py`
-* `src/main_rq3_example_retrieval.py`
-
-These scripts demonstrate how to **estimate costs and run experiments** for replicating the paper results.
-(Note: there is no `main_rq4` — RQ4 uses data from RQ1 with different analysis.)
-
-#### Overview
-
-The scripts are divided into two parts:
-
-1. **Cost Estimation (before `exit()`)** — Uses a cost-stub LLM to simulate queries and collect cost statistics. A `llm_without_api` debug mode exists for interactive prompt inspection.
-
-   You must comment both `evaluate_all` calls before `exit()` (especially `llm_without_api`) to run with actual models. You must also comment the `exit()` to proceed.
-
-2. **Actual Experiment Execution (after `exit()`)** — Runs experiments performing localization inference, assertion inference, and verification (multicore).
-
-### Replicating Everything Including Dataset Creation
-
-Optional — you can use the precomputed dataset.
-
-#### (Optional) Compute Full Dataset from Scratch
-
-This took ~48 hours with 6 parallel cores, 24GB RAM capped:
 ```sh
-cd src
-python full_dataset_creator.py
+# Extract dataset + results (~10GB)
+./extract_saved_results_tars.sh
 ```
 
-Results are already present in:
-- `dataset/dafny_assertion_all/` — assertions for every file
-- `dataset/dafny_assertion_dataset/` — extracted helper assertions only
+### Running RQ Scripts
 
-### Considerations for Full Reproducibility
+```sh
+# RQ1: Best overall — evaluates localization strategies across models
+python -m src_new.research_questions.main_rq1
 
-When running `main_rq*`, results are dumped to `results/dafny_llm_results`. They must be manually copied to the folder matching the specific data analysis. Results from RQ4 correspond to some models run in RQ1 and must also be copied manually.
+# RQ2: Fault localization — localization strategies without example retrieval
+python -m src_new.research_questions.main_rq2
 
-Full replication requires ~6 compute days on a 6-core machine.
+# RQ3: Example retrieval — assertion inference with different example strategies
+python -m src_new.research_questions.main_rq3
+```
+
+All scripts follow the same three-phase pattern:
+1. **Localization pass** — reads cached position predictions
+2. **Assertion inference pass** — reads cached assertion candidates
+3. **Verification pass** — tests combinations against Dafny
+
+Scripts error out with `CacheMissError` listing exact missing entries if any results are not cached. There is no RQ4 script — RQ4 uses RQ1 data with different analysis.
+
+### Data Analysis (Jupyter Notebooks)
+
+The figures and tables from the paper are generated by notebooks in `src/`:
+
+| Notebook | Paper Section |
+|---|---|
+| `src/data_analysys_dataset_overview.ipynb` | Figures 2, 3 |
+| `src/data_analysys_pre_tests.ipynb` | Table 2 |
+| `src/data_analysys_cost_statistics.ipynb` | Table 3 |
+| `src/data_analysys_rq1_best_overall.ipynb` | RQ1 |
+| `src/data_analysys_rq2_loc_strategy.ipynb` | RQ2 |
+| `src/data_analysys_rq3_example_retrieval.ipynb` | RQ3 |
+| `src/data_analysys_rq4_different_llms.ipynb` | RQ4 |
+
+Launch via Docker (see [README_DOCKER.md](README_DOCKER.md) section 7) or locally:
+```sh
+jupyter lab
+```
+
+### Recomputing Inference Results
+
+To rerun experiments (not just read cached results), use the legacy scripts:
+
+```sh
+# Cost estimation first (uses debug stubs)
+python -m src.main_rq1_best_overall
+python -m src.main_rq2_fault_localization
+python -m src.main_rq3_example_retrieval
+```
+
+Each script has a cost-estimation section (before `exit()`) and an execution section (after). Comment the `exit()` to run actual experiments. Full replication takes ~6 compute days on a 6-core machine.
+
+### (Optional) Recreating the Dataset from Scratch
+
+```sh
+python -m src_new.datasets.full_dataset_creator  # ~48 hours, 6 cores, 24GB RAM
+```
+
+This runs 5 steps:
+1. Extract assertions from DafnyBench via `asserttree`
+2. Generate w/o-1, w/o-2, w/o-all assertion-removal test cases
+3. Compute original verifier errors + oracle positions
+4. Compute syntactically valid assertion positions
+5. Compute all valid fix positions
 
 ---
 
 ## Installation
 
-> Skip if using the Dockerfile — all dependencies are pre-installed there. See the Dockerfile for exact steps.
+> Skip if using Docker — see [README_DOCKER.md](README_DOCKER.md).
 
-### Extract Experimental Results
+### 1. Extract Data
 
-All experiment results are compressed. Run at the project root (requires ~10GB):
-```shell
+```sh
 ./extract_saved_results_tars.sh
 ```
 
-Compressed folders:
-* `dataset/dafny_assertion_dataset.tar.gz`
-* `dataset/dafny_assertion_dataset_test.tar.gz`
-* `results/dafny_llm_results_pre_test__testing_different_models.tar.gz`
-* `results/dafny_llm_results_rq1__best_overall.tar.gz`
-* `results/dafny_llm_results_rq2__loc_strategy.tar.gz`
-* `results/dafny_llm_results_rq3__example_gatherer.tar.gz`
-* `results/dafny_llm_results_rq4__different_llms.tar.gz`
+### 2. Build Dafny
 
-### Build the Custom Dafny Binary (Optional if not using Docker)
-
-#### Prerequisites
-- .NET SDK 8.0 — [Download](https://dotnet.microsoft.com/en-us/download)
-- z3 (version 4.15.4, 64-bit): `sudo dnf install -y z3`
-
-#### Build Dafny
+Requires .NET SDK 8.0 and z3 4.15.4:
 ```sh
-cd external/dafny_fork
-make
+cd external/dafny_fork && make
 ```
-> **Note:** You may see `FAILURE: Build failed with an exception. Execution failed for task ':javadoc'.` — these do not affect the Dafny binary build. You should see `Build succeeded.` at the end.
 
-### Building the Laurel and Laurel+ Position Inference Strategies
+### 3. Build LAUREL (Optional — only for LAUREL/LAUREL_BETTER/HYBRID localization)
 
-1. **Original Laurel placeholder finder:**
-   ```bash
-   cd external/dafny_laurel_repair/dafny_laurel_repair/laurel/placeholder_finder
-   dotnet build placeholder_finder.csproj
-   ```
+```sh
+cd external/dafny_laurel_repair/laurel/placeholder_finder
+dotnet build placeholder_finder.csproj
 
-2. **Laurel+ (improved) placeholder finder:**
-   ```bash
-   cd external/dafny_laurel_repair/dafny_laurel_repair/laurel/placeholder_finder_laurel_better
-   dotnet build placeholder_finder_laurel_better.csproj
-   ```
+cd ../placeholder_finder_better
+dotnet build placeholder_finder_laurel_better.csproj
+```
 
-### Install Python Dependencies
-```shell
+### 4. Python Dependencies
+
+```sh
 pip install -r src/requirements.txt
 ```
 
-### Verify the Installation
+### 5. Verify
+
 ```sh
-PYTHONPATH=src python -m unittest discover -s src/tests -p "test_*.py" -v
+python -m pytest src_new/tests/ -q
 ```
-Some tests may be skipped (those using paid LLM providers). To run them, set `RUN_TEST_THAT_COST_MONEY = True` in `src/utils/global_variables.py`.
 
 ---
 
 ## Docker
 
-See [README_DOCKER.md](README_DOCKER.md) for Docker-specific instructions.
+See [README_DOCKER.md](README_DOCKER.md) for build/run instructions.
 
-### Docker Limitations
-
-The verifier can enter unbounded memory loops. Outside Docker, `systemd-run` caps memory usage:
-```python
-command = ["systemd-run", "--user", "--scope", "-p",
-           f"MemoryMax={gl.VERIFIER_MAX_MEMORY}G", str(dafny_exec), ...]
+Quick single-file run via Docker:
+```sh
+docker run --rm -it -w /app dafny_research:latest \
+  python -m src_new.cli \
+    dataset/extracted/dafny_assertion_dataset/SENG2011_tmp_tmpgk5jq85q_exam_ex4_dfy/method_start_0_as_start_197_end_231/program_without_assertion_group.dfy \
+    --model cost_stub_almost_real
 ```
-Adjust `VERIFIER_MAX_MEMORY` in `src/utils/global_variables.py` (default: 24GB). Must be less than your system memory.
 
-Inside Docker, `systemd-run` is unavailable — a z3 option is used instead (less stable).
+### Docker Memory Note
+
+The Dafny verifier can enter unbounded memory loops. Inside Docker, memory is limited via z3 solver options (`--solver-option:O:memory_max_size`). Outside Docker, `systemd-run` can also be used. Default limit: 24GB.
 
 ---
 
-## Dataset
+## Project Structure
 
-### Data Structure
+```
+src_new/                          # New codebase (active)
+├── cli.py                        # Single-file CLI entry point
+├── config.py                     # Shared config, enums, dataclasses
+├── daisy/
+│   ├── position_inference/       # Position prediction strategies
+│   │   ├── base.py               #   PositionInferer ABC
+│   │   ├── llm_strategy.py       #   LLM-based
+│   │   ├── llm_example_strategy.py  # LLM + retrieved examples
+│   │   ├── laurel_strategy.py    #   LAUREL static analysis
+│   │   ├── laurel_better_strategy.py # LAUREL+ improved
+│   │   ├── oracle_strategy.py    #   Ground-truth from dataset
+│   │   └── hybrid_strategy.py    #   LAUREL_BETTER + LLM merge
+│   ├── assertion_inference/      # Assertion generation strategies
+│   │   ├── base.py               #   AssertionInferer ABC
+│   │   ├── llm_strategy.py       #   LLM-based
+│   │   └── oracle_strategy.py    #   Ground-truth from dataset
+│   └── verification/             # Verification strategies
+│       ├── base.py               #   VerificationStrategy ABC
+│       └── parallel_combo.py     #   Parallel combo testing
+├── llm/                          # LLM providers (OpenAI, Bedrock, OpenRouter)
+├── utils/                        # External cmd, parallel executor, data structures
+├── research_questions/           # RQ1-3 batch evaluation scripts
+├── analysis/                     # Results reader, position evaluation
+├── datasets/                     # Dataset creation scripts
+│   ├── full_dataset_creator.py   #   Full pipeline entry point
+│   ├── dafny_get_all_assertions.py  # Step 1: extract from DafnyBench
+│   ├── dafny_dataset_generator.py   # Step 2: generate w/o-1,2,all
+│   └── assertion_test_generator.py  # Assertion removal + XML helpers
+└── tests/                        # Unit + property tests (198 tests)
 
-#### `dataset/dafny_assertion_all`
-```
-{file_folder}/assert.xml
-{file_folder}/program.dfy
-```
-- `program.dfy`: The Dafny code
-- `assert.xml`: Extracted assertions
-
-#### Example `assert.xml`
-```xml
-<program>
-  <name>example.dfy</name>
-  <Method>
-    <name>_module._default.example_method</name>
-    <start_pos>0</start_pos>
-    <end_pos>1448</end_pos>
-    <assertion>
-      <type>Regular_assertion</type>
-      <start_pos>1073</start_pos>
-      <end_pos>1118</end_pos>
-    </assertion>
-  </Method>
-</program>
-```
-
-#### `dataset/dafny_assertion_dataset`
-```
-{file_folder}/original_program.dfy
-{file_folder}/assertion_group_{id}/info.xml
-{file_folder}/assertion_group_{id}/method_without_assertion_group.dfy
-{file_folder}/assertion_group_{id}/program_without_assertion_group.dfy
-{file_folder}/assertion_group_{id}/verifier_output.txt
-```
-
-#### Example `info.xml`
-```xml
-<method>
-  <name>_module._default.testBinarySearch</name>
-  <start_pos>946</start_pos>
-  <end_pos>1302</end_pos>
-  <assertion_group>
-    <id>0</id>
-    <number_assertions>2</number_assertions>
-    <assertion>
-      <type>Regular_assertion</type>
-      <start_pos>1018</start_pos>
-      <end_pos>1050</end_pos>
-    </assertion>
-  </assertion_group>
-</method>
+src/                              # Legacy codebase (reference, untouched)
+dataset/                          # Dafny assertion dataset
+external/                         # Dafny fork, LAUREL binaries
+results/                          # Cached experiment results
 ```
 
 ---
 
-## Configurations (Extend with More LLMs)
+## Extending with New Models
 
-New LLMs can be added in `src/llm/llm_configurations.py`. Each must extend the `LLM` class:
-```python
-class LLM_my_new_llm(LLM):
-    def _get_response(self, prompt: str):
-        return "Dummy response"
-```
+Add to `MODEL_REGISTRY` in `src_new/llm/llm_configurations.py`:
 
-Add a `MODEL_REGISTRY` entry:
 ```python
-"my_new_llm": ModelInfo(
-    provider="debug",
-    model_id="my_new_llm",
+"my-model": ModelInfo(
+    provider=ProviderInfo(name="openai", module="llm_open_ai"),
+    model_id="my-model-id",
     max_context=128_000,
-    cost_1M_in=0,
-    cost_1M_out=0
+    cost_1M_in=2.50,
+    cost_1M_out=10.00,
 ),
 ```
 
-Then create directly or via factory:
+Then use it:
+```sh
+python -m src_new.cli myfile.dfy --model my-model
+```
+
+---
+
+## Dataset Structure
+
+### `dataset/extracted/dafny_assertion_dataset/`
+
+```
+{program_folder}/
+├── original_program.dfy              # Ground truth (with correct assertions)
+└── {assertion_group_id}/
+    ├── info.xml                      # Method + assertion byte positions
+    ├── program_without_assertion_group.dfy  # Broken program (assertions removed)
+    ├── method_without_assertion_group.dfy   # Just the method (assertions removed)
+    ├── verifier_output.txt           # Pre-computed Dafny errors
+    ├── oracle_assertions.json        # Ground-truth assertion strings
+    └── oracle_fix_position.txt       # Ground-truth line positions
+```
+
+
+---
+
+## Extending the Pipeline
+
+The three core pipeline stages — localization, assertion inference, and verification — each use an abstract base class with transparent caching. Adding a new strategy means subclassing the ABC, implementing one method, and wiring it into the CLI.
+
+### Adding a Localization Strategy
+
+Localization predicts *where* in a method to insert assertions. Each strategy implements `_do_infer` returning 0-based line numbers.
+
+**1. Create the strategy** in `src_new/daisy/position_inference/`:
+
 ```python
-my_new_llm = LLM_my_new_llm("some_name", MODEL_REGISTRY["my_new_llm"])
-# or
-my_new_llm = create_llm("my_new_llm")  # after adding case to llm_create.py
+# src_new/daisy/position_inference/my_strategy.py
+from pathlib import Path
+from typing import Any
+from src_new.daisy.position_inference.base import PositionInferer
+
+class MyPositionStrategy(PositionInferer):
+    def __init__(self, cache_dir: Path | None = None, **kwargs: Any):
+        super().__init__(name="MY_STRATEGY", cache_dir=cache_dir, **kwargs)
+
+    def _do_infer(self, method_text: str, error_output: str, **kwargs: Any) -> list[int]:
+        """Return 0-based line numbers after which to insert assertions."""
+        # Your logic here. Receives:
+        #   method_text  — the method source code
+        #   error_output — Dafny verifier error output
+        #   kwargs       — optional extras (method_name, program_text, etc.)
+        return [3, 7]  # example: insert after lines 3 and 7
 ```
 
-### Running LLM Evaluations
+Caching is automatic — if `cache_dir` is set, results are saved to `{cache_dir}/{cache_key}/localization/localization_raw_response.txt` and reused on subsequent runs.
+
+**2. Register in the CLI** — add to `create_position_inferer` in `src_new/cli.py`:
+
 ```python
-evaluate_all(llm_without_api, global_options, run_options)
+from src_new.daisy.position_inference.my_strategy import MyPositionStrategy
+
+# Inside create_position_inferer():
+factories = {
+    ...
+    "MY_STRATEGY": lambda: MyPositionStrategy(cache_dir=cache_dir),
+}
 ```
 
-See `src/llm/llm_pipeline.py` for pipeline options and `src/utils/global_variables.py` for other settings (prompts, etc.).
+**3. Add to CLI choices** — append `"MY_STRATEGY"` to `LOCALIZATION_CHOICES` in `cli.py`.
 
-### Logging and Output Files
+**4. Export** — add to `src_new/daisy/position_inference/__init__.py`:
 
-All prompts and responses are logged in:
+```python
+from src_new.daisy.position_inference.my_strategy import MyPositionStrategy
 ```
-dataset/dafny_llm_results/{llm_name}/{file_folder}/{assertion_group_id}/{round_indication}
+
+### Adding an Assertion Inference Strategy
+
+Assertion inference generates *what* assertions to try at each placeholder position. Each strategy implements `_do_infer` returning a list of candidate lists (one per position).
+
+**1. Create the strategy** in `src_new/daisy/assertion_inference/`:
+
+```python
+# src_new/daisy/assertion_inference/my_strategy.py
+from pathlib import Path
+from typing import Any
+from src_new.daisy.assertion_inference.base import AssertionInferer
+
+class MyAssertionStrategy(AssertionInferer):
+    def __init__(self, cache_dir: Path | None = None, **kwargs: Any):
+        super().__init__(name="MY_ASSERT", cache_dir=cache_dir, **kwargs)
+
+    def _do_infer(
+        self, method_text_with_placeholders: str, error_output: str, **kwargs: Any
+    ) -> list[list[str]]:
+        """Return candidate assertions per placeholder position.
+
+        Example: 2 positions, 3 candidates each:
+        [
+            ["assert x > 0;", "assert x >= 0;", "assert x != 0;"],
+            ["assert |s| > 0;", "assert s != [];", "assert |s| >= 1;"],
+        ]
+        """
+        return [["assert true;"]]  # placeholder
 ```
 
-Generated files:
-- **previous_program.dfy** — Program tested with missing assertions
-- **new_program.dfy** — Program with LLM-generated assertions
-- **oracle.dfy** — Fully corrected method/program
-- **prompt.txt** — Full prompt sent to the LLM
-- **response.txt** — Full response from the LLM
-- **verifier_output.txt** — Complete Dafny verifier output
+Cache path: `{cache_dir}/{cache_key}/assertions_list/assertions_parsed.json`.
+
+**2. Wire into the CLI** — in `src_new/cli.py` `main()`, replace or add alongside the existing `LLMAssertionStrategy`:
+
+```python
+from src_new.daisy.assertion_inference.my_strategy import MyAssertionStrategy
+assert_inferer = MyAssertionStrategy(cache_dir=run_dir)
+candidates = assert_inferer.infer_assertions(localized_text, error_output)
+```
+
+To make it selectable via CLI flag, add an `--assertion-strategy` argument to `build_parser()` and dispatch in `main()`.
+
+### Adding a Verification Strategy
+
+Verification tests assertion combinations against the Dafny verifier. Each strategy implements `verify_assertions` returning a `VerificationResult`.
+
+**1. Create the strategy** in `src_new/daisy/verification/`:
+
+```python
+# src_new/daisy/verification/my_verifier.py
+from typing import Any
+from src_new.config import VerificationConfig
+from src_new.daisy.verification.base import VerificationResult, VerificationStrategy
+
+class MyVerificationStrategy(VerificationStrategy):
+    def __init__(self, config: VerificationConfig, **kwargs: Any):
+        super().__init__(config, **kwargs)
+
+    def verify_assertions(
+        self,
+        full_file_text: str,
+        method_text_with_placeholders: str,
+        candidates: list[list[str]],
+    ) -> VerificationResult:
+        """Test assertion candidates. Return first verified combo.
+
+        Args:
+            full_file_text: Complete .dfy file with placeholders still in place.
+            method_text_with_placeholders: Method text with placeholder strings.
+            candidates: One inner list per placeholder position.
+
+        Steps:
+            1. Generate combos from candidates (e.g. cartesian product, zip, etc.)
+            2. For each combo: replace placeholders → run Dafny verify
+            3. Return VerificationResult with first success or all-failed summary.
+        """
+        return VerificationResult(
+            verified=False,
+            total_tested=0,
+            verified_count=0,
+            corrected_method_text=None,
+            corrected_file_text=None,
+        )
+```
+
+The existing `ParallelComboVerification` uses `zip_with_empty_indexed` to generate combos (zipped rows first, then individual leftovers). You could implement a different grouping strategy — e.g. cartesian product, beam search, or priority-based ordering.
+
+**2. Wire into the CLI** — in `src_new/cli.py` `main()`:
+
+```python
+from src_new.daisy.verification.my_verifier import MyVerificationStrategy
+verifier = MyVerificationStrategy(config=VerificationConfig())
+result = verifier.verify_assertions(full_file, localized_text, candidates)
+```
+
+### Key Interfaces Summary
+
+| Stage | Base Class | Method to Implement | Input | Output |
+|---|---|---|---|---|
+| Localization | `PositionInferer` | `_do_infer(method_text, error_output)` | Method code + errors | `list[int]` (line numbers) |
+| Assertion | `AssertionInferer` | `_do_infer(method_text_with_placeholders, error_output)` | Method with placeholders + errors | `list[list[str]]` (candidates per position) |
+| Verification | `VerificationStrategy` | `verify_assertions(full_file, method_with_placeholders, candidates)` | Full file + candidates | `VerificationResult` |
+
+All strategies receive `**kwargs` for extensibility. Localization strategies commonly use `method_name` and `program_text` as extra kwargs (needed by LAUREL/HYBRID).
