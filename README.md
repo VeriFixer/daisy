@@ -1,20 +1,38 @@
-# TODO AMANHA
-- Voltar a colocar exemplo a funcionar completamnete cli (testar todas as configuracoes).
-
-- Ver se esta a funcioar a pipeline completa ponta a ponta 
-
-- [ NO need Restruturacao maio o file group method group etc acho que nao trazem muito valor em vez de ter essas abstracoes pareceme mais facil apenas ler o dataset em si e pronto (Mas discutir este ponto com o AI talvevez ate faca muito sentido)]
-
-
-- PROOF PULSE: Tenho mesmo que enviar email ao arron sobre os assigments e esses problemas que estou a ter
-
-
-
 # Daisy
 
 Infer helper assertions in Dafny code using LLM-powered assertion repair.
 
 Daisy takes a Dafny file that fails verification, predicts where helper assertions are needed, generates candidates via an LLM, and verifies them against the Dafny verifier — returning a corrected method if a fix is found.
+
+## Getting Started
+
+### Clone (with submodules)
+
+This repo uses Git submodules for external dependencies (`dafny_fork`, `DafnyBenchFork`, `dafny_laurel_repair`). Clone recursively:
+
+```sh
+git clone --recurse-submodules git@github.com:VeriFixer/daisy.git
+```
+
+If you already cloned without `--recurse-submodules`:
+```sh
+git submodule update --init --recursive
+```
+
+### Fetch LFS files
+
+Datasets and cached results are stored via [Git LFS](https://git-lfs.com/). After cloning, pull them:
+
+```sh
+git lfs install
+git lfs pull
+```
+
+### Docker (recommended)
+
+A Docker image is available that bundles Dafny, LAUREL, Python deps, and the dataset — no manual setup needed. See **[README_DOCKER.md](README_DOCKER.md)** for build/run instructions.
+
+---
 
 ## Full cli command to pretify
 python -m src_new.cli /home/ricostynha/Desktop/daisy/dataset/extracted_test/dafny_assertion_dataset_test/Clover_count_lessthan_dfy/method_start_0_as_start_460_end_591/program_without_assertion_group.dfy --model without_api --localization LLM_EXAMPLE --assertion LLM_EXAMPLE --n-examples-pos 3 --n-examples-inf 3 --s-examples-pos RANDOM
