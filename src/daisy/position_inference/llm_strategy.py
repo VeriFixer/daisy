@@ -7,10 +7,11 @@ calls the LLM, and parses the JSON response into line numbers.
 from pathlib import Path
 from typing import Any
 
-from src.config import PositionInfererConfig
+from src.config import ExampleStrategy, PositionInfererConfig
 from src.daisy.position_inference.base import PositionInferer, register_position_strategy
 from src.llm.llm_configurations import LLM
 from src.llm.parse_raw_response import parse_raw_response
+from src.llm.retrieve_examples import format_examples, retrieve_examples
 
 
 class PositionInferenceError(Exception):
@@ -37,11 +38,34 @@ class LLMPositionStrategy(PositionInferer):
         self.config = config
         self.llm.system_prompt = config.system_prompt
 
+    def _add_examples(self, prompt: str, method_text: str, error_output: str, **kwargs: Any) -> str:
+        """Prepend retrieved examples when example retrieval is enabled."""
+        if (
+            self.config.example_retrieval_type == ExampleStrategy.NONE
+            or self.config.num_examples == 0
+        ):
+            return prompt
+
+        prog_name = kwargs.get("prog_name")
+        group_name = kwargs.get("group_name")
+        examples = retrieve_examples(
+            self.config,
+            method_text,
+            error_output,
+            prog_name,
+            group_name,
+        )
+        if not examples:
+            return prompt
+
+        return prompt + format_examples(examples)
+
     # ------------------------------------------------------------------
     # Prompt construction — mirrors src/llm/llm_pipeline.py get_localization_prompt
     # ------------------------------------------------------------------
 
-    def _build_prompt(self, method_text: str, error_output: str) -> str:
+    def _build_prompt(self, method_text: str, error_output: str, **kwargs: Any) -> str:
+        prompt = self._add_examples(self.config.localization_base_prompt, method_text, error_output, **kwargs)
         numbered_lines = "\n".join(
             f"{line_id}: {line}"
             for line_id, line in enumerate(method_text.splitlines())
@@ -50,7 +74,7 @@ class LLMPositionStrategy(PositionInferer):
             f"\n=== TASK === \n Verifier error:\n {error_output}\n Program (numbered):\n"
         )
         return (
-            self.config.localization_base_prompt
+            prompt
             + err_section
             + numbered_lines
             + "\n OUTPUT: JSON array of line numbers ONLY, e.g. [2,5] (NO OTHER TEXT OR EXPLANATION)"
@@ -61,7 +85,7 @@ class LLMPositionStrategy(PositionInferer):
     # ------------------------------------------------------------------
 
     def _do_infer(self, method_text: str, error_output: str, **kwargs: Any) -> list[int]:
-        prompt = self._build_prompt(method_text, error_output)
+        prompt = self._build_prompt(method_text, error_output, **kwargs)
         self.llm.reset_chat_history()
         raw_response = self.llm.get_response(prompt)
 

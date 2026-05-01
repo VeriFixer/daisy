@@ -7,7 +7,7 @@ import json
 import sys
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -103,6 +103,41 @@ class TestPromptConstruction:
         prompt = strategy._build_prompt("method Foo() {}", "Error: something")
         assert "OUTPUT" in prompt
         assert "JSON array of arrays" in prompt
+
+    def test_prompt_places_task_after_examples(self):
+        llm = _make_mock_llm()
+        cfg = _default_config(
+            example_retrieval_type=ExampleStrategy.DYNAMIC,
+            num_examples=1,
+        )
+        strategy = LLMAssertionStrategy(llm=llm, config=cfg)
+
+        examples = [
+            {
+                "error_message": "Error: postcondition might not hold",
+                "method_without_assertion_group": "method Bar()\n{\n  return;\n}",
+                "code_snippet": "method Bar() { return; }",
+                "assertions": '["assert x > 0;"]',
+                "oracle_pos": "[1]",
+            }
+        ]
+
+        with patch(
+            "src.llm.retrieve_examples.generate_example_model",
+            return_value=([{"code_embeds": None, "error_embeds": None}], llm, "cpu", None, None),
+        ) as mock_model, patch(
+            "src.llm.retrieve_examples.retrieve_by_error_and_code",
+            return_value=examples,
+        ) as mock_retrieve:
+            prompt = strategy._build_prompt(
+                "method Foo() { /*<Assertion>*/ }",
+                "Error: something",
+            )
+
+        assert mock_model.called
+        assert mock_retrieve.called
+        assert prompt.index("=== EXAMPLE ===") < prompt.index("=== TASK ===")
+        assert prompt.index("=== TASK ===") < prompt.rindex("Enter your response as a JSON array")
 
 
 # ---------------------------------------------------------------------------

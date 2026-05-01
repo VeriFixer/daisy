@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from src.llm.extract_error_blocks import extract_error_blocks
-from src.config import DAFNY_ASSERTION_DATASET
+from src.config import DAFNY_ASSERTION_DATASET, ExampleStrategy
 import pickle
 import json
 from tqdm import tqdm

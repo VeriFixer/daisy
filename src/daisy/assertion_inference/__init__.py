@@ -13,7 +13,7 @@ from src.daisy.assertion_inference.llm_strategy import (
 )
 
 from src.daisy.assertion_inference.llm_example_strategy import (
-    LLMExampleAssertionStrategy 
+    LLMExampleAssertionStrategy,
 )
 
 from src.daisy.assertion_inference.oracle_strategy import OracleAssertionStrategy
@@ -24,5 +24,6 @@ __all__ = [
     "register_assertion_strategy",
     "AssertionInferenceError",
     "LLMAssertionStrategy",
+    "LLMExampleAssertionStrategy",
     "OracleAssertionStrategy",
 ]

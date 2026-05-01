@@ -26,6 +26,7 @@ from src.daisy.position_inference.laurel_better_strategy import (
 )
 from src.daisy.position_inference.oracle_strategy import OraclePositionStrategy
 from src.daisy.position_inference.hybrid_strategy import HybridPositionStrategy
+from src.llm.retrieve_examples import format_examples
 
 
 # ---------------------------------------------------------------------------
@@ -44,10 +45,10 @@ def _default_config(**overrides: Any) -> PositionInfererConfig:
 
 
 # ---------------------------------------------------------------------------
-# 1. LLM_EXAMPLE: _format_examples produces text with "EXAMPLE" sections
+# 1. Example formatting: produce text with "EXAMPLE" sections
 # ---------------------------------------------------------------------------
 
-class TestLLMExampleFormatExamples:
+class TestFormatExamples:
     def test_format_examples_with_examples(self):
         """When given example dicts, output contains EXAMPLE sections."""
         examples = [
@@ -62,7 +63,7 @@ class TestLLMExampleFormatExamples:
                 "oracle_pos": "[1]",
             },
         ]
-        result = LLMExamplePositionStrategy._format_examples(examples)
+        result = format_examples(examples)
         assert "EXAMPLE" in result
         assert result.count("=== EXAMPLE ===") == 2
         assert result.count("=== END ===") == 2
@@ -70,8 +71,41 @@ class TestLLMExampleFormatExamples:
 
     def test_format_examples_empty_returns_empty_string(self):
         """When no examples given, returns empty string."""
-        result = LLMExamplePositionStrategy._format_examples([])
+        result = format_examples([])
         assert result == ""
+
+
+class TestLLMExamplePromptOrder:
+    def test_task_section_comes_after_examples(self):
+        llm = _make_mock_llm()
+        cfg = _default_config(
+            example_retrieval_type=ExampleStrategy.DYNAMIC,
+            num_examples=1,
+        )
+        strategy = LLMPositionStrategy(llm=llm, config=cfg)
+
+        examples = [
+            {
+                "error_message": "Error: assertion might not hold",
+                "method_without_assertion_group": "method Foo()\n{\n  var x := 1;\n}",
+                "oracle_pos": "[2]",
+            }
+        ]
+
+        with patch(
+            "src.daisy.position_inference.llm_strategy.retrieve_examples",
+            return_value=examples,
+        ) as mock_retrieve:
+            prompt = strategy._build_prompt(
+                "method Foo() {\n  var x := 1;\n}",
+                "Error: something",
+                prog_name="Prog",
+                group_name="Group",
+            )
+
+        assert mock_retrieve.called
+        assert prompt.index("=== EXAMPLE ===") < prompt.index("=== TASK ===")
+        assert prompt.index("=== TASK ===") < prompt.index("OUTPUT: JSON array of line numbers ONLY")
 
 
 # ---------------------------------------------------------------------------

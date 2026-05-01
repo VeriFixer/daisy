@@ -7,6 +7,9 @@ FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
+ENV HF_HOME=/opt/huggingface
+ENV SENTENCE_TRANSFORMERS_HOME=/opt/huggingface
+ENV TRANSFORMERS_CACHE=/opt/huggingface
 WORKDIR /app
 
 # ------------------------------------------------------------------------------
@@ -67,6 +70,7 @@ ENV PATH="$JAVA_HOME/bin:$PATH"
 
 RUN python3 -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
+RUN mkdir -p /opt/huggingface
 
 COPY src/requirements.txt ./src/requirements.txt
 COPY src ./src
@@ -75,6 +79,16 @@ RUN python3 -m pip install --upgrade pip setuptools wheel \
     && pip install --no-cache-dir -r ./src/requirements.txt \
     && pip install --no-cache-dir notebook ipykernel \
     && python -m ipykernel install --user --name=python --display-name "Python (venv)"
+
+RUN python - <<'PY'
+from sentence_transformers import SentenceTransformer
+
+SentenceTransformer(
+    'jinaai/jina-embeddings-v2-base-code',
+    trust_remote_code=True,
+    device='cpu',
+)
+PY
 
 EXPOSE 8888
 
@@ -102,12 +116,16 @@ RUN cd external/dafny_laurel_repair/laurel/placeholder_finder_better \
 # Runtime user setup (non-root execution)
 # ------------------------------------------------------------------------------
 
-RUN useradd --create-home researcher
-RUN mkdir -p /app/temp  /app/images \
-    && chown -R researcher:researcher /app/src /app/dataset /app/results /app/temp
+RUN useradd --create-home researcher || true
+RUN mkdir -p /app/temp /app/images \
+    && chown -R researcher:researcher /app/src /app/dataset /app/results /app/temp || true
 
-USER researcher
-ENV HOME=/home/researcher
+# Keep the researcher user available, but run as root by default for easier
+# on-host file operations during development/debugging.
+USER root
+ENV HOME=/root
+ENV HF_HUB_OFFLINE=1
+ENV TRANSFORMERS_OFFLINE=1
 ENV PATH="/app/external/dafny_fork:/app/external/dafny_laurel_repair:$PATH"
 
 # ------------------------------------------------------------------------------

@@ -320,7 +320,6 @@ class TestMainFullPipelineVerified:
     """Req 8.7: full pipeline mock → verified fix → exit 0."""
 
     @patch("src.cli.shutil.rmtree")
-    @patch("src.daisy.verification.ParallelComboVerification")
     @patch("src.cli.run_initial_verification")
     @patch("src.cli.extract_methods")
     @patch("src.cli.create_llm")
@@ -329,7 +328,6 @@ class TestMainFullPipelineVerified:
         mock_create_llm,
         mock_extract,
         mock_init_verif,
-        mock_verifier_cls,
         mock_rmtree,
         tmp_path,
     ):
@@ -366,11 +364,12 @@ class TestMainFullPipelineVerified:
                 corrected_method_text="method M() {\n  var x := 1;\n  assert x > 0;\n}",
                 corrected_file_text="method M() {\n  var x := 1;\n  assert x > 0;\n}",
             )
-            mock_verifier_cls.return_value = mock_verifier
+            from src.daisy.verification.base import VERIFICATION_REGISTRY
 
-            with pytest.raises(SystemExit) as exc_info:
-                from src.cli import main
-                main([str(dfy), "--model", "claude-opus-4.5", "--localization", "LLM"])
+            with patch.dict(VERIFICATION_REGISTRY, {"PARALLEL_COMBO": MagicMock(return_value=mock_verifier)}):
+                with pytest.raises(SystemExit) as exc_info:
+                    from src.cli import main
+                    main([str(dfy), "--model", "claude-opus-4.5", "--localization", "LLM"])
 
             assert exc_info.value.code == 0
 

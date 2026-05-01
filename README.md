@@ -35,7 +35,7 @@ A Docker image is available that bundles Dafny, LAUREL, Python deps, and the dat
 ---
 
 ## Full cli command to pretify
-python -m src.cli /home/ricostynha/Desktop/daisy/dataset/extracted_test/dafny_assertion_dataset_test/Clover_count_lessthan_dfy/method_start_0_as_start_460_end_591/program_without_assertion_group.dfy --model without_api --localization LLM_EXAMPLE --assertion LLM_EXAMPLE --n-examples-pos 3 --n-examples-inf 3 --s-examples-pos RANDOM
+python -m src.cli /app/dataset/dafny_assertion_dataset_test/Clover_count_lessthan_dfy/method_start_0_as_start_460_end_591/program_without_assertion_group.dfy --model without_api --localization LLM_EXAMPLE --assertion LLM_EXAMPLE --n-examples-pos 3 --n-examples-inf 3 --s-examples-pos RANDOM
 
 
 ## Quick Start
@@ -83,7 +83,7 @@ Daisy will:
 You can try this on a real dataset example:
 ```sh
 python -m src.cli \
-  dataset/extracted/dafny_assertion_dataset/SENG2011_tmp_tmpgk5jq85q_exam_ex4_dfy/method_start_0_as_start_197_end_231/program_without_assertion_group.dfy \
+  dataset/dafny_assertion_dataset/SENG2011_tmp_tmpgk5jq85q_exam_ex4_dfy/method_start_0_as_start_197_end_231/program_without_assertion_group.dfy \
   --model openrouter-free --localization LLM
 ```
 
