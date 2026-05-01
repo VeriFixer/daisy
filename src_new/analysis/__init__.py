@@ -3,6 +3,9 @@
 Provides:
 - ResultsReader: reads cached localization/assertion/verification results
 - PositionEvaluator: evaluates position prediction accuracy against oracle
+- dataset_graphs: plotting functions for dataset visualization
+- get_tables_results: LaTeX table generation
+- get_results: bar charts, stats tests, and visualization
 """
 
 from src_new.analysis.results_reader import (

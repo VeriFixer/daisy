@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+from typing import Any
+
 from src_new.llm.extract_error_blocks import extract_error_blocks
 from src_new.config import DAFNY_ASSERTION_DATASET
 import pickle
