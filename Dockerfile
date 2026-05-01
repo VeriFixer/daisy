@@ -98,6 +98,9 @@ EXPOSE 8888
 
 COPY . /app
 
+# Make the project importable inside the container (editable install)
+RUN pip install -e /app
+
 # ------------------------------------------------------------------------------
 # Build research tools
 # - Dafny fork
