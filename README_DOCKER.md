@@ -95,7 +95,7 @@ docker run --rm -it \
 
 Start the container with port forwarding, then inside:
 ```sh
-jupyter lab --ip=0.0.0.0 --no-browser
+jupyter lab --ip=0.0.0.0 --no-browser --allow-root
 ```
 
 Copy the URL from the output (looks like `http://127.0.0.1:8888/lab?token=...`) into your browser.
