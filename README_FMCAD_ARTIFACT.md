@@ -37,27 +37,42 @@ Run to load the image
 docker load -i dafny_research_latest.tar.gz
 ```
 
-### 2. Run one example through the CLI
-
-The easiest path is the wrapper script at the repository root:
+If there exist a need to manually build the image that can also be achieved with 
 
 ```sh
-./docker_run_cli.sh dataset/extracted/dafny_assertion_dataset/SENG2011_tmp_tmpgk5jq85q_exam_ex4_dfy/method_start_0_as_start_197_end_231/program_without_assertion_group.dfy -b
+docker build -t dafny_research:latest .
 ```
-
-If you prefer to call the CLI directly inside the container, use to go inside the container:
+### 2. Extract precomputed  dataset and results
+Go inside docker 
 
 ```sh
 docker run --rm -it \
-  -e OPENROUTER_API_KEY="$OPENROUTER_API_KEY"
   -p 8888:8888 \
   -w /app \
   dafny_research:latest bash
 ```
-
+Inside docker
 ```sh
-python -m src.cli dataset/extracted/dafny_assertion_dataset/SENG2011_tmp_tmpgk5jq85q_exam_ex4_dfy/method_start_0_as_start_197_end_231/program_without_assertion_group.dfy --model cost_stub_almost_real --localization LLM
+# Extract dataset + results (~15GB)
+./extract_saved_results_tars.sh
 ```
+
+the connection of the port 8888:8888 is to be able to acess the jupyter notebooks from docker
+You can pass a OPENROUTER_API_KEY as a environmental variable (you can free of charge even test free models on OPENROUTER).
+
+### 3. Run techniques in one example inside CLI
+
+Inside docker you can run the tecnique cli in one example like so
+
+Need another example this is too short
+```sh
+python -m src.cli dataset/dafny_assertion_dataset/SENG2011_tmp_tmpgk5jq85q_exam_ex4_dfy/method_start_0_as_start_197_end_231/program_without_assertion_group.dfy --model cost_stub_almost_real --localization LLM
+```
+
+This will use LLM as default techinque for localization using a stub for the llm. 
+you can list all availabel llm models currently supported and if passed a  OPNROUTER_API_KEY
+
+A complete command with all options to be possible changed is the following
 
 ### 3. What output to expect
 
@@ -109,15 +124,6 @@ The paper’s tables and figures are generated from notebooks under [src/researc
 6. [src/research_questions/data_analysys_rq3_example_gatherer.ipynb](src/research_questions/data_analysys_rq3_example_gatherer.ipynb)
 7. [src/research_questions/data_analysys_rq4_different_llms.ipynb](src/research_questions/data_analysys_rq4_different_llms.ipynb)
 
-## How to Extract the Cached Data
-
-Extract the packaged tarballs in place:
-
-```sh
-./extract_saved_results_tars.sh
-```
-
-This restores the dataset and cached result directories that the analysis notebooks expect.
 
 ## How to Reproduce the Paper Results
 
@@ -206,3 +212,12 @@ If you use a real model instead of a debug stub, provide the relevant API key en
 ## Expected Review Outcome
 
 A successful review should confirm that Daisy can repair at least one Dafny example, that the cached result archives can be extracted, and that the notebooks regenerate the paper’s reported tables and figures from those cached inputs.
+
+### 2. Run one example through the CLI
+
+The easiest path is the wrapper script at the repository root:
+
+```sh
+./docker_run_cli.sh dataset/extracted/dafny_assertion_dataset/SENG2011_tmp_tmpgk5jq85q_exam_ex4_dfy/method_start_0_as_start_197_end_231/program_without_assertion_group.dfy -b
+```
+
