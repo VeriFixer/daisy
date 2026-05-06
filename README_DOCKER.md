@@ -83,6 +83,7 @@ docker run --rm -it \
 docker run --rm -it \
   -p 8888:8888 \
   -v "$(pwd)/src:/app/src:delegated" \
+  -v "$(pwd)/images:/app/images:delegated" \
   -v "$(pwd)/results:/app/results:delegated" \
   -v "$(pwd)/dataset:/app/dataset:delegated" \
   -v "$(pwd)/tmp:/app/tmp:delegated" \
