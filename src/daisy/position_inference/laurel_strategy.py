@@ -79,7 +79,7 @@ class LAURELPositionStrategy(PositionInferer):
                 "False",  # multiple_locations
             ]
 
-            status, stdout, stderr = run_external_cmd(cmd, timeout=120)
+            status, stdout, stderr = run_external_cmd(cmd, timeout=120, stdin_input=error_output)
 
             if status != Status.OK:
                 raise PositionInferenceError(

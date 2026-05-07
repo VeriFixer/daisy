@@ -26,13 +26,14 @@ class Status(Enum):
 
 
 def run_external_cmd(
-    cmd: list[str], timeout: int = DEFAULT_TIMEOUT
+    cmd: list[str], timeout: int = DEFAULT_TIMEOUT, stdin_input: str | None = None
 ) -> tuple[Status, str, str]:
     """Run an external command with timeout and structured status return.
 
     Args:
         cmd: Command and arguments as a list of strings.
         timeout: Max seconds to wait. 0 or negative means no timeout.
+        stdin_input: Optional string to pass to the process's stdin.
 
     Returns:
         (Status, stdout, stderr) tuple.
@@ -41,6 +42,7 @@ def run_external_cmd(
         if timeout > 0:
             result = subprocess.run(
                 cmd,
+                input=stdin_input,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
@@ -49,6 +51,7 @@ def run_external_cmd(
         else:
             result = subprocess.run(
                 cmd,
+                input=stdin_input,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
