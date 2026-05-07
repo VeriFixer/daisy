@@ -679,7 +679,7 @@ If you use a real model instead of a debug stub, provide the relevant API key en
 
 For isntances 
 ```bash
-export OPENROUTER_API_KEY "youtkey"
+export OPENROUTER_API_KEY "your key"
 ```
 
 ## Expected Review Outcome
