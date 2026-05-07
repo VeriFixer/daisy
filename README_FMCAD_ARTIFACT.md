@@ -604,8 +604,11 @@ http://127.0.0.1:8888/lab?token=5da37094e6e911d7b4d01d2b71b486ef80532e7bf97eea49
 (yout token may change)
 navigate to src/research_questions 
 
-3. Open a given reseqrch question rq1-rq3 and you may regerneate the results tables as well as the images that are presented on the paper 
-(note more information and other graphs and statistical tests are also made and provided)
+3. Open a given research question rq1-rq3 and you may regenerate the results tables as well as the images that are presented on the paper 
+(note more information and other graphs and statistical tests are also made and provided).
+src/research_questions/data_analysys_rq1_best_overall.ipynb
+src/research_questions/data_analysys_rq2_loc_strategy.ipynb
+src/research_questions/data_analysys_rq3_example_gatherer.ipynb
 
 This is the recommended path for reviewers because it avoids long API-driven reruns.
 
@@ -629,7 +632,7 @@ If you want to recreate the dataset from scratch, the repository provides:
 python -m src.datasets.full_dataset_creator
 ```
 
-The repository notes this as a long-running process.
+But this as a long-running process.
 
 ## Expected Output and Result Files
 
