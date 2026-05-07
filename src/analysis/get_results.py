@@ -133,8 +133,10 @@ def get_latex_table_with_verif_stats(df_verif_stats: pd.DataFrame, caption: str,
             total = global_totals.get(bench_name, 0)
             pct = (s / total * 100) if total > 0 else 0
             s_fmt = phantom_pad(s, max_sum_digits)
-            pct_fmt = phantom_pad(int(pct), max_pct_digits)
-            return s, pct, f"{s_fmt} ({pct_fmt}.0\\%)"
+            pct_rounded = f"{pct:.1f}"
+            pct_int_part, pct_frac_part = pct_rounded.split('.')
+            pct_fmt = phantom_pad(int(pct_int_part), max_pct_digits)
+            return s, pct, f"{s_fmt} ({pct_fmt}.{pct_frac_part}\\%)"
 
         nw1, _, fw1 = get_total_and_percentage_and_str("w/o-1", max_sum_digits, max_pct_digits)
         nw2, _, fw2 = get_total_and_percentage_and_str("w/o-2", max_sum_digits, max_pct_digits)
