@@ -1,8 +1,8 @@
-# Daisy
+# DAISY
 
 Infer helper assertions in Dafny code using LLM-powered assertion repair.
 
-Daisy takes a Dafny file that fails verification, predicts where helper assertions are needed, generates candidates via an LLM, and verifies them against the Dafny verifier — returning a corrected method if a fix is found.
+DAISY takes a Dafny file that fails verification, predicts where helper assertions are needed, generates candidates via an LLM, and verifies them against the Dafny verifier — returning a corrected method if a fix is found.
 
 ## Getting Started
 
@@ -68,12 +68,12 @@ ensures (n*(n-1))%2 == 0
 }
 ```
 
-Run Daisy on it:
+Run DAISY on it:
 ```sh
 python -m src.cli example.dfy --model openrouter-free --localization LLM
 ```
 
-Daisy will:
+DAISY will:
 1. Verify the file → finds it fails
 2. Localize → predicts line 7 needs an assertion
 3. Infer → generates 10 candidate assertions
