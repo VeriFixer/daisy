@@ -1,4 +1,4 @@
-# Daisy FMCAD Artifact Reviewer Guide
+# Daisy Artifact Reviewer Guide
 
 This README is written for artifact reviewers. It explains what Daisy does, how to run a quick sanity check, what outputs to expect, and how to reproduce the paper's reported results from cached data.
 
